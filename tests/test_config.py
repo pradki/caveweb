@@ -29,12 +29,17 @@ def write_config(payload, name='caveweb.json'):
     return path
 
 
+DEFAULTS_MQTT = dict(config.MQTT)
+
+
 def reset():
     """Każdy przypadek startuje od wartości domyślnych modułu."""
     config.DB_PATH = Path('/domyslna/measurements.db')
     config.REFRESH_SECONDS = 60.0
     config.HTTP.clear()
     config.HTTP.update(DEFAULTS)
+    config.MQTT.clear()
+    config.MQTT.update(DEFAULTS_MQTT)
 
 
 # 1. plik nadpisuje bazę, interwał i wybrane klucze http
@@ -80,7 +85,26 @@ reset()
 check("brak opcjonalnego pliku -> None", config.load(missing, required=False) is None)
 check("wartości domyślne nietknięte", config.DB_PATH == Path('/domyslna/measurements.db'))
 
-# 5. zmienna środowiskowa ma pierwszeństwo przy szukaniu bazy
+# 5. sekcja mqtt: host/port oraz lista topików zamieniana na krotkę
+reset()
+path = write_config({'mqtt': {'host': '192.168.1.10', 'port': 8883,
+                              'topics': ['cave/sensors/#', 'cave/deye/#']}},
+                    name='mqtt.json')
+config.load(path)
+check("mqtt.host nadpisany", config.MQTT['host'] == '192.168.1.10')
+check("mqtt.port nadpisany", config.MQTT['port'] == 8883)
+check("topics jako krotka", config.MQTT['topics'] == ('cave/sensors/#', 'cave/deye/#'))
+check("client_id zostaje domyślny", config.MQTT['client_id'] == 'caveweb')
+
+reset()
+path = write_config({'mqtt': {'hostt': 'x'}}, name='zly-mqtt.json')
+try:
+    config.load(path)
+    check("nieznany klucz mqtt podnosi ValueError", False)
+except ValueError as error:
+    check("nieznany klucz mqtt podnosi ValueError", 'mqtt.hostt' in str(error))
+
+# 6. zmienna środowiskowa ma pierwszeństwo przy szukaniu bazy
 old_env = os.environ.get('CAVE_DB_PATH')
 os.environ['CAVE_DB_PATH'] = '/ze/srodowiska.db'
 try:

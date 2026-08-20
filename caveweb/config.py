@@ -1,4 +1,4 @@
-"""Konfiguracja aplikacji: lokalizacja bazy metrica i parametry serwera HTTP.
+"""Konfiguracja aplikacji: baza metrica, broker MQTT i serwer HTTP.
 
 Wartości domyślne wystarczają do uruchomienia na stacji deweloperskiej.
 Na Raspberry Pi nadpisuje je plik JSON (`--config caveweb.json`) albo zmienna
@@ -38,6 +38,18 @@ DB_PATH = resolve_db_path()
 # Co ile sekund wykres sam dociąga nowe dane
 REFRESH_SECONDS = 60.0
 
+# Broker MQTT - źródło wartości bieżących. Aplikacja tylko subskrybuje,
+# nigdy nie publikuje, więc nie może wpłynąć na pracę instalacji.
+MQTT = {
+    'host': '127.0.0.1',
+    'port': 1883,
+    'client_id': 'caveweb',
+    'topics': ('cave/#',),
+    'keepalive': 60,
+    'username': None,
+    'password': None,
+}
+
 # Argumenty przekazywane do ui.run(). Klucze są jednocześnie listą tego,
 # co wolno ustawić w sekcji "http" pliku konfiguracyjnego.
 HTTP = {
@@ -76,6 +88,11 @@ def load(path=None, db=None, required: bool = True):
                 if key not in HTTP:
                     raise ValueError(f'nieznany klucz http.{key} w {config_path}')
                 HTTP[key] = value
+            for key, value in (raw.get('mqtt') or {}).items():
+                if key not in MQTT:
+                    raise ValueError(f'nieznany klucz mqtt.{key} w {config_path}')
+                # topics w JSON to lista - klient oczekuje krotki
+                MQTT[key] = tuple(value) if key == 'topics' else value
             loaded = config_path
         elif required:
             raise FileNotFoundError(f'brak pliku konfiguracji: {config_path}')
