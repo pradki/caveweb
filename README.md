@@ -90,7 +90,7 @@ caveweb/
         battery.py       "/charts/battery"
         power.py         "/charts/power"
         energy.py        "/charts/energy"
-tests/                   pytest suite (db layer, config loading, chart logic)
+tests/                   plain scripts (db layer, config loading, chart logic)
 ```
 
 ## Configuration
@@ -141,15 +141,22 @@ match your paths.
 
 ## Tests
 
+No framework, no live data, no network — each file is a plain script that prints `OK`/`FAIL`
+and exits non-zero on failure:
+
 ```bash
-python -m pytest tests -q
+python tests/test_db.py
+python tests/test_config.py
+python tests/test_chartpage.py
 ```
 
-`tests/test_db.py` builds a temporary database with metrica's schema, so it needs no live data.
-`tests/test_chartpage.py` needs `nicegui` importable (it is skipped otherwise) but never starts
-a server: it instantiates the page classes without `__init__` and checks the generated ECharts
-series — which columns are requested, that counters become bars, that discharge goes below zero
-and that grouping collapses five lines into two sums.
+`test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
+JSON overrides, including that an unknown `http` key fails at startup. `test_chartpage.py`
+never starts a server: it instantiates the page classes without `__init__` and checks the
+generated ECharts series — which columns get requested, that counters become bars, that
+discharge goes below zero, and that grouping collapses five lines into two sums. If `nicegui`
+is not installed, the tests substitute a stub for it (only the `caveweb` package imports it,
+not the logic under test).
 
 ## License
 

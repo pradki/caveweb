@@ -1,65 +1,94 @@
-"""Testy wczytywania konfiguracji JSON."""
+# -*- coding: utf-8 -*-
+"""Testy wczytywania konfiguracji - bez pytest.
+
+    python tests/test_config.py
+"""
+
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
-import pytest
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import check, done, ensure_nicegui
 
-from caveweb import config  # noqa: E402
+ensure_nicegui()
 
-
-@pytest.fixture(autouse=True)
-def restore_defaults(monkeypatch):
-    """Każdy test dostaje własne kopie globalnych wartości modułu."""
-    monkeypatch.setattr(config, 'DB_PATH', Path('/domyslna/measurements.db'))
-    monkeypatch.setattr(config, 'REFRESH_SECONDS', 60.0)
-    monkeypatch.setattr(config, 'HTTP', dict(config.HTTP))
+from caveweb import config
 
 
-def write_config(tmp_path, payload) -> Path:
-    path = tmp_path / 'caveweb.json'
+tmp_dir = Path(tempfile.mkdtemp())
+DEFAULTS = dict(config.HTTP)
+
+
+def write_config(payload, name='caveweb.json'):
+    path = tmp_dir / name
     path.write_text(json.dumps(payload), encoding='utf-8')
     return path
 
 
-def test_load_overrides_db_refresh_and_http(tmp_path):
-    path = write_config(tmp_path, {
-        'database': {'path': '/z/pliku/measurements.db'},
-        'ui': {'refresh_seconds': 15},
-        'http': {'port': 9000, 'storage_secret': 'tajne'},
-    })
-    assert config.load(path) == path
-    assert config.DB_PATH == Path('/z/pliku/measurements.db')
-    assert config.REFRESH_SECONDS == 15.0
-    assert config.HTTP['port'] == 9000
-    assert config.HTTP['storage_secret'] == 'tajne'
-    assert config.HTTP['host'] == '0.0.0.0'  # nietknięte zostaje domyślne
+def reset():
+    """Każdy przypadek startuje od wartości domyślnych modułu."""
+    config.DB_PATH = Path('/domyslna/measurements.db')
+    config.REFRESH_SECONDS = 60.0
+    config.HTTP.clear()
+    config.HTTP.update(DEFAULTS)
 
 
-def test_db_argument_wins_over_file(tmp_path):
-    path = write_config(tmp_path, {'database': {'path': '/z/pliku/measurements.db'}})
-    config.load(path, db='/z/linii/polecen.db')
-    assert config.DB_PATH == Path('/z/linii/polecen.db')
+# 1. plik nadpisuje bazę, interwał i wybrane klucze http
+reset()
+path = write_config({
+    'database': {'path': '/z/pliku/measurements.db'},
+    'ui': {'refresh_seconds': 15},
+    'http': {'port': 9000, 'storage_secret': 'tajne'},
+})
+loaded = config.load(path)
+check("load zwraca ścieżkę pliku", loaded == path)
+check("database.path nadpisane", config.DB_PATH == Path('/z/pliku/measurements.db'))
+check("refresh_seconds nadpisane", config.REFRESH_SECONDS == 15.0)
+check("http.port nadpisany", config.HTTP['port'] == 9000)
+check("http.storage_secret nadpisany", config.HTTP['storage_secret'] == 'tajne')
+check("nietknięte klucze zostają domyślne", config.HTTP['host'] == '0.0.0.0')
 
+# 2. --db wygrywa z plikiem
+reset()
+path = write_config({'database': {'path': '/z/pliku/measurements.db'}})
+config.load(path, db='/z/linii/polecen.db')
+check("--db wygrywa z plikiem", config.DB_PATH == Path('/z/linii/polecen.db'))
 
-def test_unknown_http_key_is_an_error(tmp_path):
-    path = write_config(tmp_path, {'http': {'porrt': 9000}})
-    with pytest.raises(ValueError, match='http.porrt'):
-        config.load(path)
+# 3. literówka w sekcji http to błąd startu, nie cicha ignorancja
+reset()
+path = write_config({'http': {'porrt': 9000}}, name='zla.json')
+try:
+    config.load(path)
+    check("nieznany klucz http podnosi ValueError", False)
+except ValueError as error:
+    check("nieznany klucz http podnosi ValueError", 'http.porrt' in str(error))
 
+# 4. brak pliku: wymagany podnosi wyjątek, opcjonalny przechodzi
+reset()
+missing = tmp_dir / 'nie-ma.json'
+try:
+    config.load(missing)
+    check("brak wymaganego pliku -> FileNotFoundError", False)
+except FileNotFoundError:
+    check("brak wymaganego pliku -> FileNotFoundError", True)
 
-def test_missing_file_raises_when_required(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        config.load(tmp_path / 'nie-ma.json')
+reset()
+check("brak opcjonalnego pliku -> None", config.load(missing, required=False) is None)
+check("wartości domyślne nietknięte", config.DB_PATH == Path('/domyslna/measurements.db'))
 
+# 5. zmienna środowiskowa ma pierwszeństwo przy szukaniu bazy
+old_env = os.environ.get('CAVE_DB_PATH')
+os.environ['CAVE_DB_PATH'] = '/ze/srodowiska.db'
+try:
+    check("CAVE_DB_PATH wygrywa", config.resolve_db_path() == Path('/ze/srodowiska.db'))
+finally:
+    if old_env is None:
+        os.environ.pop('CAVE_DB_PATH', None)
+    else:
+        os.environ['CAVE_DB_PATH'] = old_env
 
-def test_missing_file_is_fine_when_optional(tmp_path):
-    assert config.load(tmp_path / 'nie-ma.json', required=False) is None
-    assert config.DB_PATH == Path('/domyslna/measurements.db')
-
-
-def test_env_variable_wins_in_resolve(monkeypatch):
-    monkeypatch.setenv('CAVE_DB_PATH', '/ze/srodowiska.db')
-    assert config.resolve_db_path() == Path('/ze/srodowiska.db')
+done()
