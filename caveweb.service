@@ -1,0 +1,18 @@
+[Unit]
+Description=caveweb - wykresy pomiarow cave (NiceGUI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sqna
+WorkingDirectory=/home/sqna/cave/raspberry/caveweb
+ExecStart=/home/sqna/venv/cave/bin/python3 /home/sqna/cave/raspberry/caveweb/cavewebrun.py --config /home/sqna/cave/raspberry/caveweb/caveweb.json
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

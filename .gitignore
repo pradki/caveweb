@@ -1,0 +1,14 @@
+# Lokalna konfiguracja (ścieżka bazy, sekret sesji) - szablon w caveweb.example.json
+caveweb.json
+
+# Python
+__pycache__/
+*.py[cod]
+
+venv/
+.venv/
+
+# Baza metrica nie należy do tego repo - aplikacja tylko ją czyta
+*.db
+*.db-shm
+*.db-wal

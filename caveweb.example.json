@@ -1,0 +1,16 @@
+{
+  "database": {
+    "path": "/home/sqna/cave/raspberry/metrica/measurements.db"
+  },
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8081,
+    "title": "cave",
+    "dark": true,
+    "storage_secret": "zmien-ten-sekret",
+    "favicon": "🚀"
+  },
+  "ui": {
+    "refresh_seconds": 60
+  }
+}
