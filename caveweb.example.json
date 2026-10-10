@@ -2,6 +2,9 @@
   "database": {
     "path": "/home/sqna/cave/raspberry/metrica/measurements.db"
   },
+  "refuels": {
+    "path": "/home/sqna/cave/logs/refuels.csv"
+  },
   "mqtt": {
     "host": "127.0.0.1",
     "port": 1883,

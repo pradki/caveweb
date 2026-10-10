@@ -86,6 +86,8 @@ def boiler() -> None:
         with ui.row().classes('w-full items-center gap-2'):
             ui.button('Konfiguracja', icon='settings',
                       on_click=lambda: ui.navigate.to('/boiler/config')).props('outline')
+            ui.button('Tankowanie', icon='local_shipping',
+                      on_click=lambda: ui.navigate.to('/boiler/refuel')).props('outline')
             ui.button('Wykres temperatur', icon='show_chart',
                       on_click=lambda: ui.navigate.to('/charts/temperature')).props('flat')
 

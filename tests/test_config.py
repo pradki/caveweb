@@ -35,6 +35,7 @@ DEFAULTS_MQTT = dict(config.MQTT)
 def reset():
     """Każdy przypadek startuje od wartości domyślnych modułu."""
     config.DB_PATH = Path('/domyslna/measurements.db')
+    config.REFUELS_PATH = Path('/domyslna/refuels.csv')
     config.REFRESH_SECONDS = 60.0
     config.HTTP.clear()
     config.HTTP.update(DEFAULTS)
@@ -114,5 +115,22 @@ finally:
         os.environ.pop('CAVE_DB_PATH', None)
     else:
         os.environ['CAVE_DB_PATH'] = old_env
+
+# 7. dziennik tankowań: plik nadpisuje, zmienna środowiskowa wygrywa z szukaniem
+reset()
+path = write_config({'refuels': {'path': '/z/pliku/refuels.csv'}}, name='refuels.json')
+config.load(path)
+check("refuels.path nadpisane", config.REFUELS_PATH == Path('/z/pliku/refuels.csv'))
+
+old_env = os.environ.get('CAVE_REFUELS_PATH')
+os.environ['CAVE_REFUELS_PATH'] = '/ze/srodowiska/refuels.csv'
+try:
+    check("CAVE_REFUELS_PATH wygrywa",
+          config.resolve_refuels_path() == Path('/ze/srodowiska/refuels.csv'))
+finally:
+    if old_env is None:
+        os.environ.pop('CAVE_REFUELS_PATH', None)
+    else:
+        os.environ['CAVE_REFUELS_PATH'] = old_env
 
 done()

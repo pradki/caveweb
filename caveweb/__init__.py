@@ -12,6 +12,7 @@ from .pages import power
 from .pages import energy
 from .pages import boiler
 from .pages import boiler_config
+from .pages import boiler_refuel
 from .pages import pv
 from .pages import temperatures
 

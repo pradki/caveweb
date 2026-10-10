@@ -32,8 +32,9 @@ Two data sources, each for what it is good at:
 | Route | What is on it |
 |-------|---------------|
 | `/home` | Tiles: **Wykresy**, **Kocioł CO** (furnace temperature on the tile), **PV** (PV power, battery SOC, load), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
-| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; fan and feeder state plus their runtime today; the key setpoints |
+| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime; the key setpoints |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Saving is not wired yet** (see below) |
+| `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
@@ -66,8 +67,13 @@ A screen declares a value like this — one topic, or several to be summed:
 ```python
 live.value_of('Piec', topics.sensor('furnace_temp'), unit='°C', digits=1)
 live.sum_of('Moc PV', [topics.deye('pv1_power'), topics.deye('pv2_power')], unit='W', digits=0)
-live.value_of('Dmuchawa dziś', topics.relay_counters('co_fan'), kind='seconds', key='today_s')
+live.value_of('Dmuchawa total', topics.relay_counters('co_fan'), kind='duration', key='total_s')
 ```
+
+`kind='duration'` formats seconds as `HH:MM:SS`, with a day count prefixed once it passes 24h
+(`format_value`/`format_duration_hms` in `live.py`) — used for the relay gateway's on-time
+counters (`today_s`/`total_s`), which run well past the point where `kind='seconds'`'s
+minutes-or-hours format stops being readable.
 
 ### Boiler parameters
 
@@ -84,6 +90,37 @@ Publishing to `cave/heating/setpoints/#` changes how the furnace runs, and this 
 only ever listened. So the configuration page renders the inputs and the current values but the
 **Zapisz** button is disabled: enabling it means adding a `publish()` to `mqttclient` and
 wiring the button to it. Deliberate decision, not an oversight.
+
+### Writing data: the refuel log
+
+`/boiler/refuel` (`caveweb/refuels.py`) is the one place this app writes anything at all - a
+plain append-only CSV, not a broker publish, and recording a *fact about the physical world*
+(someone poured coal in), never a command that changes how the furnace runs. That's a different
+risk than the setpoints page above: it can't feed back into control, so the "we only read"
+principle isn't being bent, just scoped to "we don't control the furnace" rather than "we don't
+write anything, ever".
+
+Each row: timestamp, bag count, bag size (20 or 25 kg), total kg, whether it was filled to
+full, and the feeder's `total_s` counter (`cave/relay/relay_heating/co_feeder/counters`) at
+that moment. That last field is the point: the difference between two consecutive "filled to
+full" entries' `total_s` is exactly how long the feeder ran to burn through what got topped up
+at the second one, so every such pair is a measurement of seconds-of-feeder-runtime per kg for
+whichever bag size was actually burning (the *first* entry's size, not necessarily the second's
+- `refuels.coefficient_for()` attributes each interval that way). A non-full top-up breaks the
+pair on both sides, since it's no longer true that the interval started and ended at a known
+full tank.
+
+25 kg bags got a starting coefficient, `308 s/kg`, worked out by hand from a full season of
+`/home/sqna/cave/logs/feeder_log.csv` (hand-annotated `# add NNN kg` comment lines around the
+hourly on-time rows) - treat it as provisional, since the per-interval spread in that data was
+wide (one interval alone was 4-6x faster than the rest). 20 kg has no starting value: the first
+clean pair of 20 kg refuels establishes it. `coefficient_for()` always prefers whatever the log
+itself has over the hardcoded starting value, so the estimate keeps improving as real data comes
+in and the one-off historical number becomes irrelevant.
+
+Not wired yet: a live "estimated % remaining" on the Kocioł CO tile from the current
+`total_s` minus the last refuel's, using whichever coefficient applies. The refuel log is the
+groundwork for that, not that feature itself.
 
 ## Charts
 
@@ -305,6 +342,7 @@ python tests/test_config.py
 python tests/test_chartpage.py
 python tests/test_live.py
 python tests/test_pages.py
+python tests/test_refuels.py
 ```
 
 `test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
@@ -312,8 +350,13 @@ JSON overrides, including that an unknown `http`/`mqtt` key fails at startup. `t
 feeds payloads into the cache and checks parsing, per-publisher fields, sums (including partial
 ones), staleness and the database fallback. `test_pages.py` validates the screen declarations:
 every value has a `cave/...` topic, labels within a panel are unique (a duplicate would
-silently drop a row), and the configuration page covers every setpoint. `test_chartpage.py`
-checks the generated ECharts series. If `nicegui` is not installed the tests substitute a stub
+silently drop a row), the configuration page covers every setpoint, and every module in
+`caveweb/pages/` is actually imported by `caveweb/__init__.py` (a page whose import is
+missing still passes every other check and 404s in production - this caught exactly that bug
+once already). `test_chartpage.py` checks the generated ECharts series. `test_refuels.py`
+covers the append-only log round-trip and `coefficient_for()` - which pairs count, which don't,
+and that an interval is attributed to the bag size that was actually burning. If `nicegui` is
+not installed the tests substitute a stub
 for it — only the package imports it, not the logic under test.
 
 ## License

@@ -35,6 +35,27 @@ def resolve_db_path() -> Path:
 
 DB_PATH = resolve_db_path()
 
+# Dziennik tankowań podajnika (caveweb/refuels.py) - jedyne miejsce, gdzie ta
+# aplikacja coś zapisuje zamiast tylko czytać. Mieszka obok feeder_log.csv,
+# nie w repo, więc też wymaga rozwiązania ścieżki pod dev/Pi.
+_REFUELS_CANDIDATES = [
+    Path('/home/sqna/cave/logs/refuels.csv'),
+    Path.home() / 'cave_logs' / 'refuels.csv',
+]
+
+
+def resolve_refuels_path() -> Path:
+    env = os.environ.get('CAVE_REFUELS_PATH')
+    if env:
+        return Path(env)
+    for candidate in _REFUELS_CANDIDATES:
+        if candidate.parent.exists():
+            return candidate
+    return _REFUELS_CANDIDATES[-1]
+
+
+REFUELS_PATH = resolve_refuels_path()
+
 # Co ile sekund wykres sam dociąga nowe dane
 REFRESH_SECONDS = 60.0
 
@@ -75,7 +96,7 @@ def load(path=None, db=None, required: bool = True):
     domyślna ścieżka `caveweb.json` obok skryptu uruchomieniowego.
     Zwraca ścieżkę wczytanego pliku albo None, jeśli zostały wartości domyślne.
     """
-    global DB_PATH, REFRESH_SECONDS
+    global DB_PATH, REFUELS_PATH, REFRESH_SECONDS
 
     loaded = None
     if path is not None:
@@ -85,6 +106,9 @@ def load(path=None, db=None, required: bool = True):
             database = raw.get('database') or {}
             if database.get('path'):
                 DB_PATH = Path(database['path'])
+            refuels_section = raw.get('refuels') or {}
+            if refuels_section.get('path'):
+                REFUELS_PATH = Path(refuels_section['path'])
             ui_section = raw.get('ui') or {}
             if ui_section.get('refresh_seconds'):
                 REFRESH_SECONDS = float(ui_section['refresh_seconds'])
