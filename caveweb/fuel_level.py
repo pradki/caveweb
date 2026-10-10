@@ -84,13 +84,28 @@ def estimate(current_total_s: float | None = None) -> dict | None:
 
 def publish_once() -> dict | None:
     payload = estimate()
-    if payload is not None:
-        mqttclient.publish(TOPIC, json.dumps(payload), qos=0, retain=True)
+    if payload is None:
+        LOG.info('fuel_level: brak tankowań w dzienniku, nic do publikacji')
+        return None
+    info = mqttclient.publish(TOPIC, json.dumps(payload), qos=0, retain=True)
+    rc = getattr(info, 'rc', None)
+    if rc not in (None, 0):
+        # QoS 0 + niepołączony klient = wiadomość po prostu ginie, bez wyjątku -
+        # stąd jawne sprawdzenie, inaczej ten brak jest niewidoczny jak dzisiaj.
+        LOG.warning('fuel_level: publish nieudany (rc=%s) - %.1f%% (%.1f kg) zgubione',
+                   rc, payload['value'], payload['kg'])
+    else:
         LOG.info('fuel_level: %.1f%% (%.1f kg)', payload['value'], payload['kg'])
     return payload
 
 
-async def publish_loop(interval: float = PUBLISH_INTERVAL_SECONDS) -> None:
+async def publish_loop(interval: float = PUBLISH_INTERVAL_SECONDS,
+                       startup_delay: float = 5.0) -> None:
+    """Startuje z opóźnieniem: ten task rusza w tej samej chwili, co
+    mqttclient.start(), ale połączenie z brokerem (connect_async) kończy się
+    chwilę później - bez tego opóźnienia pierwsza próba potrafi trafić na
+    MQTT_ERR_NO_CONN i przepaść bez śladu aż do następnej, godzinę później."""
+    await asyncio.sleep(startup_delay)
     while True:
         try:
             publish_once()

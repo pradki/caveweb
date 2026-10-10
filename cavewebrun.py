@@ -11,10 +11,17 @@ from __future__ import annotations
 __version__ = "0.2"
 
 import argparse
+import logging
 from pathlib import Path
 
 import caveweb
 from caveweb import config
+
+# Bez tego żaden LOG.info/warning (mqttclient, fuel_level, ...) nigdzie nie
+# trafia - ui.run() konfiguruje logowanie uvicorna, nie modułu logging w
+# ogóle, więc własne loggery milczą nawet przy realnych błędach.
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 DEFAULT_CONFIG = Path(__file__).with_name('caveweb.json')
 
