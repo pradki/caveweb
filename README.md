@@ -38,6 +38,7 @@ Two data sources, each for what it is good at:
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
+| `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
 
 Values are refreshed every 5 s from the in-memory MQTT cache; a value older than 5 minutes is
 greyed out, and each card says how old it is and whether it came from the broker or the
@@ -56,6 +57,7 @@ declares which field it wants:
 | `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` |
 | `cave/relay/<module>/<alias>/status` | `state` | `{"state": true}` |
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
+| `cave/heating/fuel_level` | `value` | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -118,9 +120,35 @@ clean pair of 20 kg refuels establishes it. `coefficient_for()` always prefers w
 itself has over the hardcoded starting value, so the estimate keeps improving as real data comes
 in and the one-off historical number becomes irrelevant.
 
-Not wired yet: a live "estimated % remaining" on the Kocioł CO tile from the current
-`total_s` minus the last refuel's, using whichever coefficient applies. The refuel log is the
-groundwork for that, not that feature itself.
+### Publishing: the fuel level estimate
+
+`caveweb/fuel_level.py` is the other write path - the only thing this app publishes to MQTT
+at all (`mqttclient.publish()`, added just for this). It's the same category as `cave/heating/status`
+or `cave/cwu/status` from the other services: a service announcing something it computed about
+itself, not a command that controls anything. Once an hour (`publish_loop()`, started from
+`caveweb/__init__.py`'s `on_startup`), it replays the whole refuel log and publishes
+`cave/heating/fuel_level`, retained:
+
+```json
+{
+  "value": 75.0, "kg": 150.0, "tank_capacity_kg": 200.0,
+  "last_refuel_timestamp": "2026-10-10T18:00:00",
+  "last_refuel_total_s": 1000.0, "last_refuel_filled_to_full": true,
+  "last_refuel_bag_size_kg": 25, "coefficient_s_per_kg": 308.0
+}
+```
+
+The model (`fuel_level.estimate()`) replays every row in order: a "filled to full" entry resets
+the running level to `TANK_CAPACITY_KG` (200 kg); anything else adds its `total_kg` to whatever
+the level already was (capped at capacity) - that's the "topped up, not to full" case, which
+can't reset the baseline because we don't know what was in the tank before it. Between every
+pair of rows, and from the last row to now, the elapsed `total_s` is converted to kg burned using
+`refuels.coefficient_for()` for whichever bag size was active over that stretch. `value` is the
+percentage (what `fuel_indicator()` in `widgets.py` expects); the rest of the fields are there so
+anything subscribing can see *why* the number is what it is, not just the number.
+
+Not wired into the UI yet: `fuel_indicator()` on the Kocioł CO tile still needs a subscriber for
+this topic - it's being published, just not displayed there yet.
 
 ## Charts
 
@@ -292,13 +320,13 @@ behind it, only encryption-in-transit on a LAN panel. Accept/trust it once per b
 
 ## Kiosk: fullscreen on the Pi's own screen
 
-Two independent **user** systemd units (install under `~/.config/systemd/user/`,
+Three independent **user** systemd units (install under `~/.config/systemd/user/`,
 `WantedBy=default.target`, same shape as the existing `heatapp.service` for `caveapp`)
 turn the Pi's attached display into a kiosk showing this dashboard:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp caveweb-kiosk.service screen-idle.service ~/.config/systemd/user/
+cp caveweb-kiosk.service screen-idle.service kiosk-watchdog.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 ```
 
@@ -315,21 +343,42 @@ systemctl --user stop heatapp.service
 systemctl --user enable --now caveweb-kiosk.service
 ```
 
-**`screen-idle.service`** - blanks the physical screen after 30 s of no touch/input and
+**`screen-idle.service`** - blanks the physical screen after a period of no touch/input and
 wakes it on the next one, independent of whichever app is in front (it operates on the
-Wayland output directly, not on a window). This one is safe to enable regardless of which
-kiosk app is running:
+Wayland output directly, not on a window). Safe to enable regardless of which kiosk app is
+running:
 
 ```bash
 systemctl --user enable --now screen-idle.service
 ```
 
-It replaces the equivalent logic that `caveapp/screenctrl.py` embeds in its own process (PySide6 cursor
-polling + `wlr-randr`) with `swayidle`, the standard idle daemon for wlroots compositors,
-so there is no Qt dependency and no custom polling loop to maintain. While `heatapp.service`
-is still active its embedded screen controller does the same thing on the same timeout,
-which is redundant but harmless (both issue the same idempotent `wlr-randr` calls) until
-`caveapp` is eventually retired.
+It replaces the equivalent logic that `caveapp/screenctrl.py` embeds in its own process (PySide6
+cursor polling + `wlr-randr`) with `swayidle`, the standard idle daemon for wlroots compositors -
+no Qt dependency, no custom polling loop. While `heatapp.service` is still active its embedded
+screen controller does the same thing on the same default timeout, which is redundant but
+harmless (both issue the same idempotent `wlr-randr` calls) until `caveapp` is eventually
+retired.
+
+Configurable from **`/settings`** on the dashboard itself (on/off, timeout in seconds, whether
+to restart `wayvnc` on wake - not always needed, and a wasted restart if it isn't) rather than
+by editing the unit. `screen_idle_runner.py` is a thin wrapper: it reads the same small JSON
+file the settings page writes (`config.SCREEN_IDLE_SETTINGS_PATH`, default
+`/home/sqna/cave/logs/screen_idle.json`) and `exec`s `swayidle` with whatever it finds - or, if
+disabled, just waits (`signal.pause()`) so the unit stays "active" without doing anything. Saving
+on `/settings` writes the file and runs `systemctl --user restart screen-idle.service` itself, so
+a changed timeout takes effect immediately, not on the next reboot.
+
+**`kiosk-watchdog.service`** (`kiosk_watchdog.py`) - a once-per-boot recovery check for a
+specific failure seen after a Pi reset: the kiosk came up with the screen blanked and touch
+unresponsive, most likely because Chromium/the session started before the Wayland/input stack
+was fully ready. The watchdog waits up to 5 minutes after boot for *any* input activity (via the
+same `swayidle` mechanism, independently of `screen-idle.service`'s own instance - multiple
+`swayidle` clients can watch the same compositor's idle state at once). If none arrives in that
+window, it forces the screen on and restarts `caveweb-kiosk.service` once. A marker file under
+`XDG_RUNTIME_DIR` (tmpfs - cleared on every reboot) makes this strictly one-shot per boot: a
+second instance of this unit (e.g. from the kiosk restarting on its own later) finds the marker
+and exits immediately, so it can't turn into a restart loop if the real problem is something
+else entirely.
 
 ## Tests
 
@@ -343,21 +392,29 @@ python tests/test_chartpage.py
 python tests/test_live.py
 python tests/test_pages.py
 python tests/test_refuels.py
+python tests/test_fuel_level.py
+python tests/test_settings.py
 ```
 
 `test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
 JSON overrides, including that an unknown `http`/`mqtt` key fails at startup. `test_live.py`
 feeds payloads into the cache and checks parsing, per-publisher fields, sums (including partial
-ones), staleness and the database fallback. `test_pages.py` validates the screen declarations:
-every value has a `cave/...` topic, labels within a panel are unique (a duplicate would
-silently drop a row), the configuration page covers every setpoint, and every module in
-`caveweb/pages/` is actually imported by `caveweb/__init__.py` (a page whose import is
-missing still passes every other check and 404s in production - this caught exactly that bug
-once already). `test_chartpage.py` checks the generated ECharts series. `test_refuels.py`
-covers the append-only log round-trip and `coefficient_for()` - which pairs count, which don't,
-and that an interval is attributed to the bag size that was actually burning. If `nicegui` is
-not installed the tests substitute a stub
-for it — only the package imports it, not the logic under test.
+ones), staleness, the database fallback, and `publish()` (with and without a started client).
+`test_pages.py` validates the screen declarations: every value has a `cave/...` topic, labels
+within a panel are unique (a duplicate would silently drop a row), the configuration page covers
+every setpoint, and every module in `caveweb/pages/` is actually imported by
+`caveweb/__init__.py` (a page whose import is missing still passes every other check and 404s in
+production - this caught exactly that bug once already). `test_chartpage.py` checks the
+generated ECharts series. `test_refuels.py` covers the append-only log round-trip and
+`coefficient_for()` - which pairs count, which don't, and that an interval is attributed to the
+bag size that was actually burning. `test_fuel_level.py` covers the level-replay model: resets on
+a full fill, adds on a partial one, caps at tank capacity, and picks up a measured coefficient
+over the hardcoded starting one once real pairs exist. `test_settings.py` covers the screen-idle
+settings round-trip, defaults on a missing or partial file, and that a corrupt file falls back
+instead of raising. None of these exercise `screen_idle_runner.py` or `kiosk_watchdog.py`
+themselves (`swayidle`/`wlr-randr`/a real compositor aren't available to test against) - only the
+pure logic each depends on. If `nicegui` is not installed the tests substitute a stub for it —
+only the package imports it, not the logic under test.
 
 ## License
 

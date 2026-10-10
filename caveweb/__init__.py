@@ -1,9 +1,11 @@
 """Aplikacja webowa cave (NiceGUI) – kafelki, wartości bieżące i wykresy."""
 __version__ = "0.3"
 
+import asyncio
+
 from nicegui import app, ui
 
-from . import config, mqttclient
+from . import config, fuel_level, mqttclient
 from .pages import home
 from .pages import charts
 from .pages import temperature
@@ -14,6 +16,7 @@ from .pages import boiler
 from .pages import boiler_config
 from .pages import boiler_refuel
 from .pages import pv
+from .pages import settings
 from .pages import temperatures
 
 
@@ -26,3 +29,4 @@ def index() -> None:
 def start_mqtt() -> None:
     """Klient MQTT startuje razem z serwerem, już po wczytaniu konfiguracji."""
     mqttclient.start(**config.MQTT)
+    asyncio.create_task(fuel_level.publish_loop())

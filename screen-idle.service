@@ -1,11 +1,11 @@
 [Unit]
-Description=Screen power management (idle blank)
+Description=Screen power management (idle blank, configurable from caveweb /settings)
 After=graphical-session.target
 
 [Service]
 Type=simple
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStart=/usr/bin/swayidle -w timeout 30 '/usr/bin/wlr-randr --output HDMI-A-1 --off' resume '/usr/bin/wlr-randr --output HDMI-A-1 --on; sudo -n systemctl restart wayvnc.service'
+ExecStart=/home/sqna/venv/cave/bin/python3 /home/sqna/cave/raspberry/caveweb/screen_idle_runner.py
 Restart=always
 RestartSec=5
 

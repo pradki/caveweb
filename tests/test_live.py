@@ -33,6 +33,30 @@ check("bajty dekodowane", mqttclient.parse_payload(b'{"value": 3}') == {'value':
 check("pusty payload -> None", mqttclient.parse_payload('  ') is None)
 check("payload nie-tekstowy -> None", mqttclient.parse_payload(None) is None)
 
+# --- publish() - jedyne miejsce, gdzie ta apka woła coś na brokera ----------
+
+
+class FakeClient:
+    def __init__(self):
+        self.calls = []
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        self.calls.append((topic, payload, qos, retain))
+        return 'ok'
+
+
+mqttclient._client = None
+check("brak wystartowanego klienta -> publish() nic nie rzuca, zwraca None",
+      mqttclient.publish('x/y', '{}') is None)
+
+fake = FakeClient()
+mqttclient._client = fake
+check("z klientem, publish() woła przez niego z podanymi qos/retain",
+      mqttclient.publish('cave/heating/fuel_level', '{"value": 80}',
+                         qos=0, retain=True) == 'ok'
+      and fake.calls == [('cave/heating/fuel_level', '{"value": 80}', 0, True)])
+mqttclient._client = None
+
 check("extract domyślnie bierze value", mqttclient.extract({'value': 7}) == 7)
 check("extract innego pola", mqttclient.extract({'today_s': 120, 'total_s': 9}, 'today_s') == 120)
 check("extract brakującego pola -> None", mqttclient.extract({'value': 7}, 'state') is None)

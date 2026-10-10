@@ -1,0 +1,12 @@
+[Unit]
+Description=Kiosk boot watchdog (recovers a stuck screen/kiosk once per boot)
+After=graphical-session.target caveweb-kiosk.service
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/home/sqna/venv/cave/bin/python3 /home/sqna/cave/raspberry/caveweb/kiosk_watchdog.py
+Restart=no
+
+[Install]
+WantedBy=default.target

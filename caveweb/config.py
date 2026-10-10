@@ -56,11 +56,34 @@ def resolve_refuels_path() -> Path:
 
 REFUELS_PATH = resolve_refuels_path()
 
+# Ustawienia wygaszacza ekranu (caveweb/pages/settings.py <-> screen_idle_runner.py,
+# patrz README "Kiosk"). Osobny mały plik, nie sekcja w caveweb.json - zmienia
+# się z poziomu UI w działającej aplikacji, nie przy starcie usługi.
+_SCREEN_IDLE_CANDIDATES = [
+    Path('/home/sqna/cave/logs/screen_idle.json'),
+    Path.home() / 'cave_logs' / 'screen_idle.json',
+]
+
+
+def resolve_screen_idle_settings_path() -> Path:
+    env = os.environ.get('CAVE_SCREEN_IDLE_SETTINGS')
+    if env:
+        return Path(env)
+    for candidate in _SCREEN_IDLE_CANDIDATES:
+        if candidate.parent.exists():
+            return candidate
+    return _SCREEN_IDLE_CANDIDATES[-1]
+
+
+SCREEN_IDLE_SETTINGS_PATH = resolve_screen_idle_settings_path()
+
 # Co ile sekund wykres sam dociąga nowe dane
 REFRESH_SECONDS = 60.0
 
-# Broker MQTT - źródło wartości bieżących. Aplikacja tylko subskrybuje,
-# nigdy nie publikuje, więc nie może wpłynąć na pracę instalacji.
+# Broker MQTT - źródło wartości bieżących. Aplikacja subskrybuje wszystko i
+# publikuje jeden wyliczony status (cave/heating/fuel_level, co godzinę -
+# patrz fuel_level.py), nigdy komendę sterującą, więc nie może wpłynąć na
+# pracę kotła, falownika ani przekaźników.
 MQTT = {
     'host': '127.0.0.1',
     'port': 1883,

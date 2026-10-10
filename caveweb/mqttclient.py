@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 """Klient MQTT trzymający ostatnią wartość każdego topiku.
 
-Aplikacja tylko słucha - nie publikuje niczego, więc nie może wpłynąć na pracę
-kotła, falownika ani przekaźników. Wartości lądują w pamięci procesu (`cache`),
-a strony odczytują je w swoich timerach: paho biegnie własnym wątkiem, my tylko
-podmieniamy krotki w słowniku pod zamkiem.
+Aplikacja przede wszystkim słucha - nie publikuje nastaw ani komend, więc nie
+może wpłynąć na pracę kotła, falownika ani przekaźników. Jeden wyjątek:
+`publish()` poniżej, używany wyłącznie przez `fuel_level.py` do opublikowania
+własnego, wyliczonego statusu (`cave/heating/fuel_level`) - to tej samej
+kategorii co `cave/heating/status` czy `cave/cwu/status` z innych usług:
+serwis ogłasza coś, co sam policzył, a nie steruje czymkolwiek. Patrz README,
+"Writing data" po więcej. Wartości z brokera lądują w pamięci procesu
+(`cache`), a strony odczytują je w swoich timerach: paho biegnie własnym
+wątkiem, my tylko podmieniamy krotki w słowniku pod zamkiem.
 
 Payloady w cave to JSON publikowany zwykle z retain=True, więc po podłączeniu
 broker od razu dosyła stan bieżący. Interesujące pole zależy od publishera:
@@ -76,6 +81,10 @@ class Cache:
 
 cache = Cache()
 
+# Ustawiany przez start() - jedyny sposób, w jaki publish() poniżej dostaje
+# dostęp do połączenia, bez przeciągania klienta przez każdą funkcję.
+_client = None
+
 
 def parse_payload(payload):
     """Parsuje payload MQTT do obiektu Pythona (dict, liczba, bool, tekst).
@@ -146,6 +155,7 @@ def start(host='127.0.0.1', port=1883, client_id='caveweb', topics=('cave/#',),
     Łączymy się przez connect_async: gdy broker jeszcze nie wstał (typowe przy
     starcie Pi), paho będzie próbować dalej, a aplikacja i tak się podniesie.
     """
+    global _client
     try:
         import paho.mqtt.client as mqtt
     except ImportError as error:
@@ -175,8 +185,20 @@ def start(host='127.0.0.1', port=1883, client_id='caveweb', topics=('cave/#',),
         LOG.warning('Nie udało się wystartować klienta MQTT: %s', error)
         return None
 
+    _client = client
     LOG.info('Klient MQTT wystartował: %s:%s jako %s', host, port, client_id)
     return client
+
+
+def publish(topic: str, payload: str, qos: int = 0, retain: bool = False):
+    """Publikuje - patrz docstring modułu po to, czemu to w ogóle istnieje.
+    Nie rzuca, gdy klient jeszcze nie wystartował (np. broker padł przy
+    starcie) - tylko loguje i zwraca None, żeby wołający (fuel_level.py) nie
+    musiał się tym przejmować co godzinę."""
+    if _client is None:
+        LOG.warning('publish(%s) pominięty - klient MQTT nie wystartował', topic)
+        return None
+    return _client.publish(topic, payload, qos=qos, retain=retain)
 
 
 def status_text(now: float | None = None) -> str:

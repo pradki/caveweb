@@ -51,6 +51,8 @@ def home() -> None:
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
         tile('water_drop', 'Nawadnianie', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Nawadnianie ogrodu – wkrótce'))
+        tile('settings', 'Konfiguracja', target='/settings',
+             subtitle='wygaszacz ekranu')
 
     boiler.start()
     pv.start()
