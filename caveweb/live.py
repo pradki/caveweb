@@ -33,7 +33,7 @@ class Value:
     unit: str = ''
     digits: int = 1
     columns: tuple[str, ...] = ()
-    kind: str = 'number'          # 'number' | 'bool' | 'seconds'
+    kind: str = 'number'          # 'number' | 'bool' | 'seconds' | 'duration'
     key: str = 'value'            # pole w payloadzie JSON (patrz mqttclient)
     icon: str = ''
     desc: str = ''
@@ -76,6 +76,16 @@ def db_columns(values) -> list:
     return columns
 
 
+def format_duration_hms(seconds) -> str:
+    """HH:MM:SS, z liczbą dni z przodu, gdy przekracza dobę (np. "2d 03:15:42")."""
+    total = int(seconds)
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    hms = f'{hours:02d}:{minutes:02d}:{secs:02d}'
+    return f'{days}d {hms}' if days else hms
+
+
 def format_value(spec: Value, value) -> str:
     if value is None:
         return '–'
@@ -84,6 +94,8 @@ def format_value(spec: Value, value) -> str:
     if spec.kind == 'seconds':
         minutes = float(value) / 60.0
         return f'{minutes:.0f} min' if minutes < 600 else f'{minutes / 60:.1f} h'
+    if spec.kind == 'duration':
+        return format_duration_hms(value)
     if isinstance(value, str):
         return value
     text = f'{float(value):.{spec.digits}f}'
@@ -178,6 +190,26 @@ class LivePanel:
                     self._captions[spec.label] = ui.label('').classes('text-xs text-grey-7')
                     if spec.desc:
                         ui.label(spec.desc).classes('text-xs text-grey-8')
+
+    def render_device_cards(self, groups, columns: str = 'w-40') -> None:
+        """Karty grupujące kilka wartości pod jednym tytułem/ikoną zamiast
+        jednej karty na wartość (np. "Dmuchawa": total + dziś z tego samego
+        licznika, zamiast dwóch osobnych kafelków).
+
+        `groups`: lista `(tytuł, ikona, [(podpis_wiersza, spec), ...])` -
+        każda para rysowana jako wiersz "podpis: wartość" pod tytułem."""
+        with ui.row().classes('w-full gap-3 flex-wrap'):
+            for title, icon, rows in groups:
+                with ui.card().classes(f'{columns} p-3 gap-1'):
+                    with ui.row().classes('items-center gap-1 no-wrap'):
+                        if icon:
+                            ui.icon(icon).classes('text-sm text-blue-4')
+                        ui.label(title).classes('text-xs text-grey-5 font-medium')
+                    for row_label, spec in rows:
+                        with ui.row().classes('w-full items-baseline gap-1 justify-between'):
+                            ui.label(f'{row_label}:').classes('text-xs text-grey-6')
+                            self._labels[spec.label] = ui.label('–').classes(
+                                'text-sm font-medium')
 
     def render_rows(self) -> None:
         """Zwarta lista wiersz po wierszu - do nastaw i długich zestawów."""

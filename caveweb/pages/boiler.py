@@ -44,16 +44,24 @@ HOUSE = [
     live.value_of('Zewnątrz', topics.sensor('outside_temp'), unit='°C', icon='thermostat'),
 ]
 
-# Praca urządzeń: stan teraz i czas pracy w tej dobie (licznik bramy przekaźników)
+# Praca urządzeń: total i dziś z licznika bramy przekaźników (today_s/total_s
+# z cave/relay/relay_heating/<alias>/counters), jedna karta na urządzenie -
+# patrz DEVICES niżej, które paruje total+dziś pod wspólnym tytułem/ikoną.
 WORK = [
-    live.value_of('Dmuchawa', topics.relay_status('co_fan'), kind='bool',
-                  key='state', columns=(), icon='mode_fan'),
-    live.value_of('Dmuchawa dziś', topics.relay_counters('co_fan'), kind='seconds',
-                  key='today_s', columns=(), icon='schedule'),
-    live.value_of('Podajnik', topics.relay_status('co_feeder'), kind='bool',
-                  key='state', columns=(), icon='conveyor_belt'),
-    live.value_of('Podajnik dziś', topics.relay_counters('co_feeder'), kind='seconds',
-                  key='today_s', columns=(), icon='schedule'),
+    live.value_of('Dmuchawa total', topics.relay_counters('co_fan'), kind='duration',
+                  key='total_s', columns=()),
+    live.value_of('Dmuchawa dziś', topics.relay_counters('co_fan'), kind='duration',
+                  key='today_s', columns=()),
+    live.value_of('Podajnik total', topics.relay_counters('co_feeder'), kind='duration',
+                  key='total_s', columns=()),
+    live.value_of('Podajnik dziś', topics.relay_counters('co_feeder'), kind='duration',
+                  key='today_s', columns=()),
+]
+
+# (tytuł, ikona, [(podpis, spec), ...]) - karty w render_device_cards
+DEVICES = [
+    ('Dmuchawa', 'mode_fan', [('total', WORK[0]), ('dziś', WORK[1])]),
+    ('Podajnik', 'conveyor_belt', [('total', WORK[2]), ('dziś', WORK[3])]),
 ]
 
 # Najważniejsze nastawy - pełna lista jest na stronie konfiguracji
@@ -81,12 +89,16 @@ def boiler() -> None:
             ui.button('Wykres temperatur', icon='show_chart',
                       on_click=lambda: ui.navigate.to('/charts/temperature')).props('flat')
 
-        for title, values in (('Kocioł', FURNACE), ('Bufor i dom', HOUSE),
-                              ('Praca urządzeń', WORK)):
+        for title, values in (('Kocioł', FURNACE), ('Bufor i dom', HOUSE)):
             section(title)
             panel = live.LivePanel(values)
             panel.render_cards()
             panels.append(panel)
+
+        section('Praca urządzeń')
+        work_panel = live.LivePanel(WORK)
+        work_panel.render_device_cards(DEVICES)
+        panels.append(work_panel)
 
         section('Nastawy')
         setpoints = live.LivePanel(KEY_SETPOINTS)

@@ -63,3 +63,18 @@ def tile_grid():
 def section(title: str) -> None:
     """Nagłówek sekcji na stronie szczegółowej."""
     ui.label(title).classes('text-sm uppercase tracking-wide text-grey-6 mt-2')
+
+
+def fuel_indicator(percent: float) -> None:
+    """Mały wskaźnik paliwa: ikona + procent, kolor wg progu."""
+    if percent < 20:
+        color = '#dc2626'  # czerwony
+    elif percent < 60:
+        color = '#d97706'  # pomarańczowy
+    else:
+        color = '#16a34a'  # zielony
+
+    with ui.row().classes('items-center gap-1 no-wrap'):
+        ui.icon('local_gas_station', size='18px').style(f'color: {color}')
+        ui.label(f'{percent:.0f}%').style(
+            f'color: {color}; font-size: 13px; font-weight: 600')

@@ -99,6 +99,20 @@ check("bool jako wł.", live.read(fan_state, now=NOW).text == 'wł.')
 reset({topics.relay_status('co_fan'): ({'state': False}, 1.0)})
 check("bool jako wył.", live.read(fan_state, now=NOW).text == 'wył.')
 
+# --- format_duration_hms (total/dziś na kartach urządzeń) ----------------------
+
+check("sekundy pod minutę", live.format_duration_hms(42) == '00:00:42')
+check("pełne godziny:minuty:sekundy", live.format_duration_hms(3725) == '01:02:05')
+check("doba lub więcej dokłada dni z przodu",
+      live.format_duration_hms(86400 + 3661) == '1d 01:01:01')
+check("kilka dni", live.format_duration_hms(2 * 86400 + 5) == '2d 00:00:05')
+
+fan_total = live.value_of('Dmuchawa total', topics.relay_counters('co_fan'),
+                          kind='duration', key='total_s', columns=())
+reset({topics.relay_counters('co_fan'): ({'total_s': 90000, 'today_s': 120}, 3.0)})
+check("karta urządzenia czyta total_s i formatuje jako czas trwania",
+      live.read(fan_total, now=NOW).text == '1d 01:00:00')
+
 # --- awaryjny odczyt z bazy ---------------------------------------------------
 
 reset()
