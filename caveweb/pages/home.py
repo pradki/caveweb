@@ -42,7 +42,9 @@ def home() -> None:
              subtitle='temperatury, moc, energia')
         tile('local_fire_department', 'Kocioł CO', target='/boiler',
              body=boiler.render_compact)
-        tile('solar_power', 'PV', target='/pv', body=pv.render_compact)
+        tile('solar_power', 'PV', target='/pv',
+             header_body=pv.render_header_value,
+             body=lambda: pv.render_compact(skip=1))
         tile('thermostat', 'Temperatury', target='/temperatures',
              body=temperatures.render_compact)
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',

@@ -141,16 +141,29 @@ class LivePanel:
 
     # ------------------------------------------------------------- rysowanie
 
-    def render_compact(self) -> None:
+    def render_compact(self, skip: int = 0) -> None:
         """Wartości na kafelku ekranu głównego, po dwie w rzędzie - tak, żeby
         kafelek z trzema i więcej pozycjami (np. PV) nie rozciągał się z
-        kwadratu w prostokąt, tylko zawijał w kolejny wiersz."""
+        kwadratu w prostokąt, tylko zawijał w kolejny wiersz.
+
+        `skip` pomija tyle pierwszych pozycji - dla kafelków, których
+        najważniejsza wartość już siedzi w nagłówku (`render_header_value`),
+        żeby nie liczyła się do wierszy tutaj."""
         with ui.row().classes('w-full gap-x-3 gap-y-1 items-start justify-center flex-wrap'):
-            for spec in self.values:
+            for spec in self.values[skip:]:
                 with ui.column().classes('gap-0 items-center').style('min-width: 3.5rem'):
                     self._labels[spec.label] = ui.label('–').classes(
                         'text-lg font-medium leading-tight')
                     ui.label(spec.label).classes('text-xs text-grey-6 leading-tight')
+
+    def render_header_value(self, index: int = 0) -> None:
+        """Jedna wartość obok tytułu kafelka (np. "PV" + "123 W") - bez
+        podpisu, bo tytuł już mówi, czego to kafelek. Użyj z `tile(header_body=...)`
+        i sparuj z `render_compact(skip=1)`, żeby ta sama wartość nie wyszła
+        podwójnie."""
+        spec = self.values[index]
+        self._labels[spec.label] = ui.label('–').classes(
+            'text-base font-medium text-blue-3')
 
     def render_cards(self, columns: str = 'w-40') -> None:
         """Kafelki z dużą wartością - do stron szczegółowych."""

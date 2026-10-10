@@ -26,17 +26,24 @@ def page_header(title: str, back: str | None = None) -> None:
 
 def tile(icon: str, title: str, target: str | None = None,
          subtitle: str = '', on_click: Callable | None = None,
-         body: Callable | None = None) -> ui.card:
+         body: Callable | None = None,
+         header_body: Callable | None = None) -> ui.card:
     """Kafelek nawigacyjny.
 
     `body` to funkcja rysująca wnętrze kafelka (u nas: wartości bieżące).
+    `header_body` rysuje coś dodatkowego w tym samym wierszu co tytuł - np.
+    jedną, najważniejszą wartość obok nazwy kafelka ("PV" + moc), żeby nie
+    liczyła się do wierszy w `body` i kafelek został kwadratem.
     Bez `target` i `on_click` kafelek jest wyszarzony i nic nie robi.
     """
     enabled = bool(target or on_click)
     card = ui.card().classes(TILE_CLASSES + ('' if enabled else ' opacity-40'))
     with card:
         ui.icon(icon).classes('text-4xl text-blue-4')
-        ui.label(title).classes('text-base font-medium text-center')
+        with ui.row().classes('items-baseline gap-1 justify-center'):
+            ui.label(title).classes('text-base font-medium text-center')
+            if header_body is not None:
+                header_body()
         if body is not None:
             body()
         if subtitle:
