@@ -5,7 +5,7 @@ __version__ = "0.2"
 
 from nicegui import ui
 
-from .. import live, topics
+from .. import fuel_level, live, topics
 from ..widgets import page_header, tile, tile_grid
 
 # Wartości pokazywane wprost na kafelkach - tyle, żeby jednym spojrzeniem
@@ -41,7 +41,8 @@ def home() -> None:
         tile('insert_chart', 'Wykresy', target='/charts',
              subtitle='temperatury, moc, energia')
         tile('local_fire_department', 'Kocioł CO', target='/boiler',
-             body=boiler.render_compact)
+             body=lambda: boiler.render_compact(
+                 extra=lambda: live.live_fuel_indicator(fuel_level.TOPIC)))
         tile('solar_power', 'PV', target='/pv',
              header_body=pv.render_header_value,
              body=lambda: pv.render_compact(skip=1))

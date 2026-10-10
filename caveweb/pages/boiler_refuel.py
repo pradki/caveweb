@@ -8,7 +8,7 @@ __version__ = "0.1"
 
 from nicegui import app, ui
 
-from .. import mqttclient, refuels, topics
+from .. import fuel_level, mqttclient, refuels, topics
 from ..widgets import page_header
 
 STORAGE_BAG_SIZE_KEY = 'refuel_bag_size_kg'
@@ -78,6 +78,9 @@ def refuel() -> None:
                 filled_to_full=full_switch.value,
                 feeder_total_s=current_feeder_total_s(),
             )
+            # Nie czekamy na godzinny cykl fuel_level.publish_loop() - świeże
+            # tankowanie od razu zmienia szacunek, niech broker to zobaczy teraz.
+            fuel_level.publish_once()
             ui.notify(
                 f'Zapisano: {record.total_kg:.0f} kg ({record.timestamp:%Y-%m-%d %H:%M})',
                 type='positive')

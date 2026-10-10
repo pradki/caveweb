@@ -12,10 +12,12 @@ __version__ = "0.1"
 
 import time
 from dataclasses import dataclass
+from typing import Callable
 
 from nicegui import run, ui
 
 from . import db, mqttclient
+from .widgets import fuel_indicator
 
 # Po tym czasie bez świeżej wiadomości wartość pokazujemy na szaro
 STALE_SECONDS = mqttclient.STALE_SECONDS
@@ -153,20 +155,24 @@ class LivePanel:
 
     # ------------------------------------------------------------- rysowanie
 
-    def render_compact(self, skip: int = 0) -> None:
+    def render_compact(self, skip: int = 0, extra: Callable | None = None) -> None:
         """Wartości na kafelku ekranu głównego, po dwie w rzędzie - tak, żeby
         kafelek z trzema i więcej pozycjami (np. PV) nie rozciągał się z
         kwadratu w prostokąt, tylko zawijał w kolejny wiersz.
 
         `skip` pomija tyle pierwszych pozycji - dla kafelków, których
         najważniejsza wartość już siedzi w nagłówku (`render_header_value`),
-        żeby nie liczyła się do wierszy tutaj."""
+        żeby nie liczyła się do wierszy tutaj.
+        `extra` dorysowuje coś jeszcze w tym samym wierszu - np. fuel_indicator()
+        obok temperatury pieca, co nie jest zwykłą wartością z tego panelu."""
         with ui.row().classes('w-full gap-x-3 gap-y-1 items-start justify-center flex-wrap'):
             for spec in self.values[skip:]:
                 with ui.column().classes('gap-0 items-center').style('min-width: 3.5rem'):
                     self._labels[spec.label] = ui.label('–').classes(
                         'text-lg font-medium leading-tight')
                     ui.label(spec.label).classes('text-xs text-grey-6 leading-tight')
+            if extra is not None:
+                extra()
 
     def render_header_value(self, index: int = 0) -> None:
         """Jedna wartość obok tytułu kafelka (np. "PV" + "123 W") - bez
@@ -256,6 +262,28 @@ class LivePanel:
             caption = self._captions.get(spec.label)
             if caption is not None:
                 caption.text = caption_text(reading)
+
+
+def live_fuel_indicator(topic: str, interval: float = 30.0):
+    """fuel_indicator() (widgets.py) odświeżany z wartości na topicu (pole
+    "value", retained - patrz fuel_level.py). Osobny mały timer zamiast
+    LivePanel.bind(): fuel_indicator rysuje ikonę w kolorze zależnym od
+    wartości, nie samą etykietę tekstową, więc "podmień .text" tutaj nie
+    wystarczy - trzeba przerysować całość, tak jak mqtt_status_label()."""
+    container = ui.row().classes('items-center gap-1 no-wrap')
+
+    def refresh() -> None:
+        value = mqttclient.cache.value(topic, 'value')
+        container.clear()
+        with container:
+            if value is None:
+                ui.icon('local_gas_station', size='18px').classes('text-grey-6')
+            else:
+                fuel_indicator(float(value))
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(interval, refresh)
+    return container
 
 
 def mqtt_status_label(interval: float = 5.0):
