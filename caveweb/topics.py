@@ -11,9 +11,11 @@ Konwencja publisherów:
 from __future__ import annotations
 __version__ = "0.1"
 
-# Moduł przekaźników, na którym wiszą dmuchawa i podajnik kotła.
-# Zmieni się, jeśli w bramie przekaźników przemianujesz moduł.
-RELAY_MODULE = 'wsdev186'
+# Moduł przekaźników, na którym wiszą dmuchawa i podajnik kotła - musi się
+# zgadzać z waveshare-mqtt-gateway/config.py (MODULES), inaczej karty
+# "Praca urządzeń" milcząco pokazują "brak danych" (nie błąd - po prostu
+# nikt nigdy nie publikuje pod źle nazwanym topikiem).
+RELAY_MODULE = 'relay_heating'
 
 
 def sensor(name: str, kind: str = 'temperature') -> str:
