@@ -18,6 +18,19 @@ ensure_nicegui()
 from caveweb import heating_params, live, topics
 from caveweb.pages import boiler, boiler_config, home, pv, temperatures
 
+# --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
+# Samo istnienie pages/foo.py nic nie rejestruje - @ui.page tylko dekoruje
+# funkcję, a ta musi się wykonać raz przy starcie. caveweb/__init__.py robi to
+# jawnym importem na nazwę; strona pominięta tam odpowiada 404 mimo że kod
+# jest poprawny i wszystkie inne testy przechodzą (tak jak tutaj - dokładnie
+# ten gap sprawił, że /temperatures wróciło 404 po wdrożeniu).
+_pages_dir = Path(__file__).resolve().parent.parent / 'caveweb' / 'pages'
+_page_modules = {p.stem for p in _pages_dir.glob('*.py') if p.stem != '__init__'}
+_init_source = (Path(__file__).resolve().parent.parent / 'caveweb' / '__init__.py').read_text(encoding='utf-8')
+_imported = {name for name in _page_modules if f'import {name}' in _init_source}
+check("każdy moduł w pages/ jest zaimportowany w caveweb/__init__.py",
+      _page_modules == _imported)
+
 # --- metadane parametrów kotła (kopia PARAMS_HEATING) ------------------------
 
 check("wszystkie parametry mają topic i typ",
