@@ -61,6 +61,10 @@ HTTP = {
     'storage_secret': 'caveweb-dev',
     'favicon': '🚀',
     'reload': False,
+    # None = bez TLS (tak jak dotychczas). Ustawiane na Pi przez caveweb.json,
+    # żeby serwować po HTTPS na porcie 443 - patrz README, sekcja "HTTPS".
+    'ssl_certfile': None,
+    'ssl_keyfile': None,
 }
 
 

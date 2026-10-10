@@ -14,6 +14,11 @@ BOILER_TILE = [
     live.value_of('piec', topics.sensor('furnace_temp'), unit='°C', digits=1),
 ]
 
+TEMPERATURES_TILE = [
+    live.value_of('zewnątrz', topics.sensor('outside_temp'), unit='°C', digits=1),
+    live.value_of('wewnątrz', topics.sensor('inside_temp'), unit='°C', digits=1),
+]
+
 PV_TILE = [
     live.sum_of('moc PV', [topics.deye('pv1_power'), topics.deye('pv2_power')],
                 unit='W', digits=0),
@@ -30,6 +35,7 @@ def home() -> None:
 
     boiler = live.LivePanel(BOILER_TILE)
     pv = live.LivePanel(PV_TILE)
+    temperatures = live.LivePanel(TEMPERATURES_TILE)
 
     with tile_grid():
         tile('insert_chart', 'Wykresy', target='/charts',
@@ -37,6 +43,8 @@ def home() -> None:
         tile('local_fire_department', 'Kocioł CO', target='/boiler',
              body=boiler.render_compact)
         tile('solar_power', 'PV', target='/pv', body=pv.render_compact)
+        tile('thermostat', 'Temperatury', target='/temperatures',
+             body=temperatures.render_compact)
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
         tile('water_drop', 'Nawadnianie', subtitle='w przygotowaniu',
@@ -44,4 +52,5 @@ def home() -> None:
 
     boiler.start()
     pv.start()
+    temperatures.start()
     live.mqtt_status_label()

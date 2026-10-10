@@ -10,11 +10,13 @@
   },
   "http": {
     "host": "0.0.0.0",
-    "port": 8081,
+    "port": 443,
     "title": "cave",
     "dark": true,
     "storage_secret": "zmien-ten-sekret",
-    "favicon": "🚀"
+    "favicon": "🚀",
+    "ssl_certfile": "/home/sqna/cave/raspberry/caveweb/certs/caveweb.crt",
+    "ssl_keyfile": "/home/sqna/cave/raspberry/caveweb/certs/caveweb.key"
   },
   "ui": {
     "refresh_seconds": 60

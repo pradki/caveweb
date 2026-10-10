@@ -1,0 +1,14 @@
+[Unit]
+Description=caveweb kiosk (fullscreen Chromium)
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/chromium --kiosk --app=https://localhost/home --start-fullscreen --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --check-for-update-interval=31536000 --incognito --ignore-certificate-errors
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

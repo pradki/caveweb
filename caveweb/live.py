@@ -142,12 +142,15 @@ class LivePanel:
     # ------------------------------------------------------------- rysowanie
 
     def render_compact(self) -> None:
-        """Wiersze etykieta - wartość, do kafelka na ekranie głównym."""
-        with ui.column().classes('w-full gap-0 items-center'):
+        """Wartości na kafelku ekranu głównego, po dwie w rzędzie - tak, żeby
+        kafelek z trzema i więcej pozycjami (np. PV) nie rozciągał się z
+        kwadratu w prostokąt, tylko zawijał w kolejny wiersz."""
+        with ui.row().classes('w-full gap-x-3 gap-y-1 items-start justify-center flex-wrap'):
             for spec in self.values:
-                self._labels[spec.label] = ui.label('–').classes(
-                    'text-xl font-medium leading-tight')
-                ui.label(spec.label).classes('text-xs text-grey-6 leading-tight')
+                with ui.column().classes('gap-0 items-center').style('min-width: 3.5rem'):
+                    self._labels[spec.label] = ui.label('–').classes(
+                        'text-lg font-medium leading-tight')
+                    ui.label(spec.label).classes('text-xs text-grey-6 leading-tight')
 
     def render_cards(self, columns: str = 'w-40') -> None:
         """Kafelki z dużą wartością - do stron szczegółowych."""

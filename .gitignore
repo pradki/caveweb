@@ -1,6 +1,9 @@
 # Lokalna konfiguracja (ścieżka bazy, sekret sesji) - szablon w caveweb.example.json
 caveweb.json
 
+# Certyfikat TLS self-signed generowany na Pi (klucz prywatny nie opuszcza urządzenia)
+certs/
+
 # Python
 __pycache__/
 *.py[cod]

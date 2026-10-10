@@ -31,10 +31,11 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | Tiles: **Wykresy**, **Kocioł CO** (furnace temperature on the tile), **PV** (PV power, battery SOC, load), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/home` | Tiles: **Wykresy**, **Kocioł CO** (furnace temperature on the tile), **PV** (PV power, battery SOC, load), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; fan and feeder state plus their runtime today; the key setpoints |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Saving is not wired yet** (see below) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
+| `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 
 Values are refreshed every 5 s from the in-memory MQTT cache; a value older than 5 minutes is
@@ -111,8 +112,17 @@ running total.
 With grouping *and* `min / max` on, the dashed lines are the sums of the members' per-bucket
 minima and maxima — the envelope of the sum, not the extremes of the summed signal.
 
-Adding a chart is one subclass: declare `signals`, `y_axes` and optionally `groups`, and the
-shared `ChartPage` supplies the range toggle, switches, refresh timer and footer statistics.
+`/temperatures/chart?params=a,b,c` is the same `ChartPage` machinery with a *dynamic*
+`signals` list instead of a fixed one: `/temperatures` lets you check any subset of its 10
+sensors, and the chart page builds `Signal`s for just the checked names from the query
+string (unknown names are dropped, not turned into a `Signal`). `return_water_temp` is
+one of the 10 but metrica does not collect it yet (see `metrica.json`), so selecting it
+alone will show an empty chart - the live value on `/temperatures` is unaffected, since
+that comes straight from MQTT.
+
+Adding a *fixed* chart is one subclass: declare `signals`, `y_axes` and optionally
+`groups`, and the shared `ChartPage` supplies the range toggle, switches, refresh timer
+and footer statistics.
 
 ```python
 class PowerPage(ChartPage):
@@ -208,6 +218,81 @@ journalctl -u caveweb -f
 The shipped unit expects a virtualenv at `/home/sqna/venv/cave` and the checkout at
 `/home/sqna/cave/raspberry/caveweb`; adjust `User`, `WorkingDirectory` and `ExecStart` to
 match your paths.
+
+## HTTPS on port 443
+
+`ui.run()` forwards `ssl_certfile`/`ssl_keyfile` straight to uvicorn, so serving HTTPS is
+just two `caveweb.json` keys plus a certificate - no code change. Binding 443 needs a
+capability most non-root services don't have; the unit grants it narrowly (to this
+process only, not the whole venv's `python3` the way `setcap` on the binary would):
+
+```ini
+# add under [Service] in caveweb.service
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+```
+
+Generate a self-signed certificate on the device itself (the private key never needs to
+leave it) and point `caveweb.json` at it:
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+  -keyout certs/caveweb.key -out certs/caveweb.crt \
+  -subj "/CN=$(hostname -I | awk '{print $1}')"
+```
+
+```json
+"http": {
+  "port": 443,
+  "ssl_certfile": "/home/sqna/cave/raspberry/caveweb/certs/caveweb.crt",
+  "ssl_keyfile": "/home/sqna/cave/raspberry/caveweb/certs/caveweb.key"
+}
+```
+
+Self-signed means every browser warns on first visit to this device - there is no CA
+behind it, only encryption-in-transit on a LAN panel. Accept/trust it once per browser.
+
+## Kiosk: fullscreen on the Pi's own screen
+
+Two independent **user** systemd units (install under `~/.config/systemd/user/`,
+`WantedBy=default.target`, same shape as the existing `heatapp.service` for `caveapp`)
+turn the Pi's attached display into a kiosk showing this dashboard:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp caveweb-kiosk.service screen-idle.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+```
+
+**`caveweb-kiosk.service`** - Chromium in kiosk mode against the local HTTPS URL.
+`--ignore-certificate-errors` is required for the self-signed cert above: kiosk mode has
+no address bar, so there is no way to click through the usual browser warning.
+
+**Do not enable this while `caveapp`'s `heatapp.service` is still running** - both set
+themselves fullscreen/always-on-top, and they'll fight over the foreground. Switch over
+with:
+
+```bash
+systemctl --user stop heatapp.service
+systemctl --user enable --now caveweb-kiosk.service
+```
+
+**`screen-idle.service`** - blanks the physical screen after 30 s of no touch/input and
+wakes it on the next one, independent of whichever app is in front (it operates on the
+Wayland output directly, not on a window). This one is safe to enable regardless of which
+kiosk app is running:
+
+```bash
+systemctl --user enable --now screen-idle.service
+```
+
+It replaces the equivalent logic that `caveapp/screenctrl.py` embeds in its own process (PySide6 cursor
+polling + `wlr-randr`) with `swayidle`, the standard idle daemon for wlroots compositors,
+so there is no Qt dependency and no custom polling loop to maintain. While `heatapp.service`
+is still active its embedded screen controller does the same thing on the same timeout,
+which is redundant but harmless (both issue the same idempotent `wlr-randr` calls) until
+`caveapp` is eventually retired.
 
 ## Tests
 

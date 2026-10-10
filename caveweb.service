@@ -8,6 +8,10 @@ Type=simple
 User=sqna
 WorkingDirectory=/home/sqna/cave/raspberry/caveweb
 ExecStart=/home/sqna/venv/cave/bin/python3 /home/sqna/cave/raspberry/caveweb/cavewebrun.py --config /home/sqna/cave/raspberry/caveweb/caveweb.json
+# Lets a non-root process bind port 443 (see README "HTTPS on port 443") without
+# setcap on the shared venv's python3, which would grant it to every other script too.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1

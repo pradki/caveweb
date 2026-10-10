@@ -16,7 +16,7 @@ from support import check, done, ensure_nicegui
 ensure_nicegui()
 
 from caveweb import heating_params, live, topics
-from caveweb.pages import boiler, boiler_config, home, pv
+from caveweb.pages import boiler, boiler_config, home, pv, temperatures
 
 # --- metadane parametrów kotła (kopia PARAMS_HEATING) ------------------------
 
@@ -55,6 +55,32 @@ check("kafelek PV pokazuje sumę PV, SOC i sumę faz",
           ('cave/deye/params/load_power_l1', 'cave/deye/params/load_power_l2',
            'cave/deye/params/load_power_l3'),
       ])
+check("kafelek temperatur na ekranie głównym pokazuje zewnątrz i wewnątrz",
+      [spec.topics for spec in home.TEMPERATURES_TILE] == [
+          ('cave/sensors/temperature/outside_temp',),
+          ('cave/sensors/temperature/inside_temp',),
+      ])
+
+# --- strona /temperatures ------------------------------------------------------
+
+check("10 czujników, bez duplikatów nazw",
+      len(temperatures.SENSORS) == 10
+      and len({name for name, _ in temperatures.SENSORS}) == 10)
+check("etykiety też unikalne (klucze LivePanel.bind)",
+      len({label for _, label in temperatures.SENSORS}) == 10)
+check("LABELS to po prostu odwrotność SENSORS",
+      temperatures.LABELS == dict(temperatures.SENSORS))
+check("każdy czujnik ma kolor przypisany (lista kolorów >= liczby czujników)",
+      len(temperatures.COLORS) >= len(temperatures.SENSORS))
+check("wszystkie nazwy odpowiadają topicom cave/sensors/temperature/*",
+      all(topics.sensor(name) == f'cave/sensors/temperature/{name}'
+          for name, _ in temperatures.SENSORS))
+
+# strona wykresu filtruje nieznane/puste nazwy z query stringa, zamiast
+# budować Signal z czegokolwiek, co ktoś wpisze w URL
+_known = set(temperatures.LABELS)
+check("filtr zna tylko zadeklarowane czujniki",
+      {'furnace_temp', 'nie_istnieje', ''} & _known == {'furnace_temp'})
 
 # --- wszystkie zestawy wartości ----------------------------------------------
 
