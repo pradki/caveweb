@@ -37,14 +37,26 @@ def home() -> None:
     pv = live.LivePanel(PV_TILE)
     temperatures = live.LivePanel(TEMPERATURES_TILE)
 
+    def boiler_body() -> None:
+        # Jeden wiersz, nie `render_compact` (dwie kolumny z podpisami pod
+        # spodem) - inaczej temperatura i węgiel łamią się na dwa rzędy i
+        # kafelek rośnie wyżej niż reszta.
+        with ui.row().classes('items-baseline gap-1 justify-center flex-nowrap'):
+            temp_label = ui.label('–').classes('text-lg font-medium leading-tight')
+            ui.label('·').classes('text-xs text-grey-6')
+            # "~" zamiast podpisu "węgiel dziś"/"szacowane zużycie" - w jednym
+            # wierszu nie ma miejsca na opis, pełne wyjaśnienie w tooltipie.
+            live.inline_topic_field(fuel_level.TOPIC, 'today_energy_kwh',
+                                    prefix='~', suffix='kWh') \
+                .tooltip('Szacowane zużycie węgla dzisiaj')
+        boiler.bind('piec', temp_label)
+
     with tile_grid():
         tile('insert_chart', 'Wykresy', target='/charts',
              subtitle='temperatury, moc, energia')
         tile('local_fire_department', 'Kocioł CO', target='/boiler',
              header_body=lambda: live.live_fuel_indicator(fuel_level.TOPIC),
-             body=lambda: boiler.render_compact(
-                 extra=lambda: live.live_topic_field(
-                     fuel_level.TOPIC, 'today_energy_kwh', 'węgiel dziś', suffix='kWh')))
+             body=boiler_body)
         tile('solar_power', 'PV', target='/pv',
              header_body=pv.render_header_value,
              body=lambda: pv.render_compact(skip=1))

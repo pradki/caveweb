@@ -156,9 +156,13 @@ kWh is easier to compare against the rest of the installation than kg. Both are 
 refuel has been logged (no bag size to pick a coefficient from yet).
 
 Wired into the Kocioł CO tile on `/home`: `fuel_indicator()` sits next to the tile's title (same
-spot `moc PV` has on the PV tile), and `today_energy_kwh` sits alongside the furnace temperature
-in the tile body (`live.live_topic_field()` - a column read straight from one field of this
-topic's payload, for values that aren't a `LivePanel` sensor).
+spot `moc PV` has on the PV tile), and `today_energy_kwh` sits in the same row as the furnace
+temperature in the tile body - one `ui.row` with `flex-nowrap`, not `LivePanel.render_compact`'s
+per-value columns (each with its own caption underneath), which wrapped onto a second row and
+made the tile taller than its neighbours. `live.inline_topic_field()` draws just the bare value
+(a `~` prefix instead of a caption marks it as an estimate, with the full explanation - "szacowane
+zużycie węgla dzisiaj" - in a tooltip) for a field read straight off a topic's payload, for values
+that aren't a `LivePanel` sensor.
 
 ## Charts
 
