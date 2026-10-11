@@ -32,3 +32,9 @@ def relay_status(alias: str, module: str = RELAY_MODULE) -> str:
 
 def relay_counters(alias: str, module: str = RELAY_MODULE) -> str:
     return f'cave/relay/{module}/{alias}/counters'
+
+
+def relay_cmd(alias: str, service: str, module: str = RELAY_MODULE) -> str:
+    """Topic komendy do gatewaya - patrz furnace_boost.py, jedyne miejsce,
+    gdzie caveweb steruje przekaźnikiem wprost (poza publikowaniem statusu)."""
+    return f'cave/relay/{module}/{alias}/cmd/{service}'

@@ -53,12 +53,22 @@ mqttclient.cache.put(furnace_boost.TOPIC, {'value': 60}, when=1_800_000_000.0)
 now = datetime(2026, 10, 11, 12, 0, 0)
 ok, message = furnace_boost.start_boost(now=now)
 check("start zwraca sukces", ok is True)
-check("podniesione o +10", fake.calls[-1][1] == {'value': 70})
-check("publikacja z retain=True", fake.calls[-1][3] is True)
+check("podniesione o +10", fake.calls[0][1] == {'value': 70})
+check("nastawa publikowana z retain=True", fake.calls[0][3] is True)
 state = furnace_boost.load_state()
 check("stan niesie oryginalną i podniesioną wartość",
       state['original_value'] == 60 and state['boosted_value'] == 70)
 check("termin to +10 minut", datetime.fromisoformat(state['expires_at']) == now + timedelta(minutes=10))
+
+# --- pompa kopnięta od razu na start, wyższy priorytet niż heating-controller -
+
+check("pompa dostaje osobną komendę na swoim topicu",
+      fake.calls[1][0] == furnace_boost.PUMP_TOPIC)
+check("flash_on na tyle samo czasu co wypalanie, priorytet wyższy niż 10",
+      fake.calls[1][1] == {'cmd': 'flash_on', 'duration': 600.0, 'priority': 20}
+      and furnace_boost.PUMP_PRIORITY > 10)
+check("komenda pompy z qos=1, nie retained",
+      fake.calls[1][2] == 1 and fake.calls[1][3] is False)
 
 # --- druga próba startu, gdy już aktywne -> odmowa, bez podwójnego +10 -------
 
@@ -71,7 +81,7 @@ check("stan się nie zmienił", furnace_boost.load_state() == state)
 fake = reset()
 mqttclient.cache.put(furnace_boost.TOPIC, {'value': 65}, when=1_800_000_000.0)  # max=72
 ok, message = furnace_boost.start_boost(now=now)
-check("ograniczone do maksimum (72), nie 75", fake.calls[-1][1] == {'value': 72})
+check("ograniczone do maksimum (72), nie 75", fake.calls[0][1] == {'value': 72})
 check("komunikat wspomina ograniczenie", 'ograniczone' in message)
 
 # --- anulowanie ręczne: wraca do oryginalnej wartości, czyści stan -----------

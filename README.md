@@ -57,6 +57,7 @@ declares which field it wants:
 | `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` — `furnace_temp` is also **published** by this app, from `/boiler`'s Wypalanie button only — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
 | `cave/relay/<module>/<alias>/status` | `state` | `{"state": true}` |
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
+| `cave/relay/<module>/co_pump_boiler/cmd/caveweb` | — | **published** by this app, `{"cmd": "flash_on", "duration": 600, "priority": 20}`, only alongside the Wypalanie boost — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
@@ -211,6 +212,22 @@ above), so it's deliberately narrow and always self-reverting:
 - None of this touches `MAX_FURNACE_TEMP`, `heating-controller`'s independent hard safety ceiling
   compared against the *actual* sensor reading, not the setpoint - that stays in force no matter
   what the setpoint says.
+
+**The boiler pump gets kicked at the same moment**, not left to catch up on its own.
+`heating-controller`'s own `pump_boiler_ctrl()` already turns that pump on, but only reactively -
+once the furnace has *actually* exceeded `setpoint + FURNACE_OVERHEAT_MARGIN`. Waiting for that
+after a boost means several idle minutes before heat starts moving to the buffer, right when the
+furnace is being pushed hottest. So `start_boost()` also fires its own `flash_on` on the
+`co_pump_boiler` channel for the same `BOOST_DURATION_SECONDS`, immediately, at `PUMP_PRIORITY`
+(20) - deliberately higher than `heating-controller`'s own lease priority (10) for every command it
+sends, including this channel's. `waveshare-mqtt-gateway`'s `leases.ChannelTable.resolve()` always
+picks the highest-priority *unexpired* lease across every service with a claim on a channel, so
+this claim wins outright for its whole duration, regardless of whether `heating-controller`'s own
+threshold has fired yet. It needs no explicit "off" or revert: a `flash_on` lease is a hardware
+pulse that expires on its own, same failure-safe shape as every other relay command in this
+project. After it expires, `heating-controller`'s own reactive logic is expected to pick the pump
+back up anyway, since the furnace is normally still hot enough to exceed the (by-then-reverted,
+lower) setpoint by more than its margin.
 
 ## Charts
 
@@ -485,8 +502,9 @@ screen-idle settings round-trip, defaults on a missing or partial file, and that
 falls back instead of raising. `test_feeder_log.py` covers the refuel-comment format and that it
 appends without disturbing existing content. `test_furnace_boost.py` covers the boost/cancel/expiry
 state machine: refusing to start without a live setpoint, refusing a second concurrent boost,
-clamping to the setpoint's configured max, and `check_expired()` reverting correctly both within
-a running session and on the first check after a simulated restart. None of these exercise
+clamping to the setpoint's configured max, the pump getting its own higher-priority `flash_on` on
+the same start, and `check_expired()` reverting correctly both within a running session and on the
+first check after a simulated restart. None of these exercise
 `screen_idle_runner.py` or `kiosk_watchdog.py`
 themselves (`swayidle`/`wlr-randr`/a real compositor aren't available to test against) - only the
 pure logic each depends on. If `nicegui` is not installed the tests substitute a stub for it —

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Chwilowe "wypalanie": +10°C na nastawie pieca na 10 minut, potem sam
 powrót do poprzedniej wartości - patrz `/boiler` ("Wypalanie"/"Anuluj").
+Razem z nastawą, od razu na start, kopie też pompę pieca na tyle samo czasu -
+patrz `_pump_on()` niżej po to, dlaczego to osobna, natychmiastowa komenda, a
+nie poleganie na heating-controller.
 
 Jedyna prawdziwa komenda sterująca, jaką ta aplikacja publikuje (reszta to
 tylko wyliczony status, patrz `fuel_level.py` i README "Writing data") -
@@ -26,7 +29,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from . import config, heating_params, mqttclient
+from . import config, heating_params, mqttclient, topics
 
 LOG = logging.getLogger('caveweb.furnace_boost')
 
@@ -34,6 +37,20 @@ SETPOINT_NAME = 'furnace_temp_setpoint'
 TOPIC = heating_params.PARAMS[SETPOINT_NAME]['topic']
 BOOST_DELTA_C = 10
 BOOST_DURATION_SECONDS = 600.0
+
+# Pompa pieca: heating-controller (serwis "heating_service", priorytet 10,
+# patrz jego config.py) ją też włącza, ale tylko reaktywnie - dopiero gdy
+# piec faktycznie przekroczy zadaną+margines (PUMP_BOILER_CTRL w heating.py).
+# Przy wypalaniu nie chcemy czekać, aż piec się rozgrzeje - pompa ma ruszyć
+# OD RAZU, żeby ciepło zaczęło schodzić do bufora zanim jeszcze zrobi się
+# gorąco. Priorytet wyższy niż heating-controller (10) gwarantuje, że to
+# roszczenie wygrywa arbitraż gatewaya (leases.ChannelTable.resolve: wyższy
+# priorytet wygrywa) na cały czas trwania, niezależnie od tego, co akurat
+# robi własna logika progowa heating-controller.
+PUMP_ALIAS = 'co_pump_boiler'
+PUMP_SERVICE_NAME = 'caveweb'
+PUMP_PRIORITY = 20
+PUMP_TOPIC = topics.relay_cmd(PUMP_ALIAS, PUMP_SERVICE_NAME)
 
 
 def _path():
@@ -68,6 +85,20 @@ def _publish(value: float) -> None:
     mqttclient.publish(TOPIC, json.dumps({'value': value}), qos=0, retain=True)
 
 
+def _pump_on(duration: float) -> None:
+    """Sprzętowy impuls na pompę pieca, wygasa sam - nie wymaga odnawiania
+    ani jawnego wyłączenia (patrz moduł). qos=1, jak każda komenda przekaźnika
+    w tej instalacji (cwu-controller, heating-controller) - w odróżnieniu od
+    nastawy wyżej, zgubienie tej komendy nie jest samo-korygujące."""
+    body = {'cmd': 'flash_on', 'duration': duration, 'priority': PUMP_PRIORITY}
+    info = mqttclient.publish(PUMP_TOPIC, json.dumps(body), qos=1, retain=False)
+    rc = getattr(info, 'rc', None)
+    if rc not in (None, 0):
+        LOG.warning('Wypalanie: kopnięcie pompy nieudane (rc=%s)', rc)
+    else:
+        LOG.info('Wypalanie: pompa pieca włączona na %.0fs (priorytet %d)', duration, PUMP_PRIORITY)
+
+
 def start_boost(now: datetime | None = None) -> tuple[bool, str]:
     """Podnosi nastawę pieca o BOOST_DELTA_C na BOOST_DURATION_SECONDS.
     Odmawia, gdy wypalanie już trwa (żeby kliknięcie drugi raz nie dołożyło
@@ -91,11 +122,12 @@ def start_boost(now: datetime | None = None) -> tuple[bool, str]:
         'expires_at': expires_at.isoformat(),
     })
     _publish(boosted)
+    _pump_on(BOOST_DURATION_SECONDS)
 
     minutes = int(BOOST_DURATION_SECONDS // 60)
     note = '' if boosted == current + BOOST_DELTA_C else f' (ograniczone do maks. {meta["max"]}°C)'
     LOG.info('Wypalanie: %s°C -> %s°C na %d min%s', current, boosted, minutes, note)
-    return True, f'Wypalanie: {boosted:.0f}°C przez {minutes} min{note}'
+    return True, f'Wypalanie: {boosted:.0f}°C przez {minutes} min{note}, pompa włączona'
 
 
 def cancel_boost() -> tuple[bool, str]:

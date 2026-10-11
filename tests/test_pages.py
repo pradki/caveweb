@@ -165,5 +165,7 @@ check("topics.relay_status", topics.relay_status('co_fan') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_fan/status')
 check("topics.relay_counters", topics.relay_counters('co_feeder') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_feeder/counters')
+check("topics.relay_cmd", topics.relay_cmd('co_pump_boiler', 'caveweb') ==
+      f'cave/relay/{topics.RELAY_MODULE}/co_pump_boiler/cmd/caveweb')
 
 done()
