@@ -43,39 +43,57 @@ def relays_page() -> None:
 
         table_container = ui.column().classes('w-full gap-0')
 
+        # Jeden, trwały dialog zamiast tworzenia nowego przy każdym kliknięciu
+        # "Akcja" - render_table() co kilka sekund czyści table_container
+        # (timer niżej), a dialog stworzony W TRAKCIE obsługi kliknięcia
+        # przycisku Z TEJ tabeli dziedziczyłby jej slot jako rodzica, więc
+        # znikałby razem z nią przy najbliższym odświeżeniu (obserwowane na
+        # żywo: "RuntimeError: parent slot of the element has been deleted",
+        # okienko gasło samo po 1-3 s). Dialog żyje poza table_container,
+        # więc żadne jej czyszczenie go nie dotyka - klik tylko podmienia,
+        # czego dotyczy, i otwiera ten sam dialog na nowo.
+        target = {'module': None, 'row': None}
+
+        with ui.dialog() as dialog, ui.card().classes('gap-2 min-w-80'):
+            dialog_title = ui.label('').classes('text-base font-medium')
+            cmd_select = ui.select(list(relay_control.CMDS), value='on', label='Akcja') \
+                .classes('w-full')
+            priority_input = ui.number('Priorytet', value=relay_control.DEFAULT_PRIORITY,
+                                       min=0, step=1, format='%.0f').classes('w-full')
+            duration_input = ui.number('Czas (s)', value=relay_control.DEFAULT_DURATION,
+                                       min=1, step=1, format='%.0f').classes('w-full')
+            duration_hint = ui.label('').classes('text-xs text-grey-6')
+
+            def update_hint() -> None:
+                duration_hint.text = (
+                    'Czas trwania sprzętowego impulsu' if cmd_select.value == 'flash_on'
+                    else 'TTL - jak długo trzymać, zanim trzeba odnowić')
+
+            cmd_select.on_value_change(lambda: update_hint())
+
+            def confirm() -> None:
+                cmd = cmd_select.value
+                priority = int(priority_input.value or 0)
+                seconds = float(duration_input.value or relay_control.DEFAULT_DURATION)
+                kwargs = ({'duration': seconds} if cmd == 'flash_on' else {'ttl': seconds})
+                ok, message = relay_control.send_command(
+                    target['module'], target['row']['name'], cmd, priority, **kwargs)
+                ui.notify(message, type='positive' if ok else 'warning')
+                dialog.close()
+                render_table()
+
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('Anuluj', on_click=dialog.close).props('flat')
+                ui.button('Wyślij', icon='send', on_click=confirm).props('color=primary')
+
         def open_action_dialog(module: str, row: dict) -> None:
-            with ui.dialog() as dialog, ui.card().classes('gap-2 min-w-80'):
-                ui.label(f'{row["name"]} (kanał {row["channel"]})').classes('text-base font-medium')
-                cmd_select = ui.select(list(relay_control.CMDS), value='on', label='Akcja') \
-                    .classes('w-full')
-                priority_input = ui.number('Priorytet', value=relay_control.DEFAULT_PRIORITY,
-                                           min=0, step=1, format='%.0f').classes('w-full')
-                duration_input = ui.number('Czas (s)', value=relay_control.DEFAULT_DURATION,
-                                           min=1, step=1, format='%.0f').classes('w-full')
-                duration_hint = ui.label('').classes('text-xs text-grey-6')
-
-                def update_hint() -> None:
-                    duration_hint.text = (
-                        'Czas trwania sprzętowego impulsu' if cmd_select.value == 'flash_on'
-                        else 'TTL - jak długo trzymać, zanim trzeba odnowić')
-
-                cmd_select.on_value_change(lambda: update_hint())
-                update_hint()
-
-                def confirm() -> None:
-                    cmd = cmd_select.value
-                    priority = int(priority_input.value or 0)
-                    seconds = float(duration_input.value or relay_control.DEFAULT_DURATION)
-                    kwargs = ({'duration': seconds} if cmd == 'flash_on' else {'ttl': seconds})
-                    ok, message = relay_control.send_command(module, row['name'], cmd,
-                                                             priority, **kwargs)
-                    ui.notify(message, type='positive' if ok else 'warning')
-                    dialog.close()
-                    render_table()
-
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('Anuluj', on_click=dialog.close).props('flat')
-                    ui.button('Wyślij', icon='send', on_click=confirm).props('color=primary')
+            target['module'] = module
+            target['row'] = row
+            dialog_title.text = f'{row["name"]} (kanał {row["channel"]})'
+            cmd_select.value = 'on'
+            priority_input.value = relay_control.DEFAULT_PRIORITY
+            duration_input.value = relay_control.DEFAULT_DURATION
+            update_hint()
             dialog.open()
 
         def render_table() -> None:
