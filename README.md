@@ -115,10 +115,14 @@ full tank.
 25 kg bags got a starting coefficient, `308 s/kg`, worked out by hand from a full season of
 `/home/sqna/cave/logs/feeder_log.csv` (hand-annotated `# add NNN kg` comment lines around the
 hourly on-time rows) - treat it as provisional, since the per-interval spread in that data was
-wide (one interval alone was 4-6x faster than the rest). 20 kg has no starting value: the first
-clean pair of 20 kg refuels establishes it. `coefficient_for()` always prefers whatever the log
-itself has over the hardcoded starting value, so the estimate keeps improving as real data comes
-in and the one-off historical number becomes irrelevant.
+wide (one interval alone was 4-6x faster than the rest). 20 kg had no data at all, which meant
+`today_coal_kg`/`today_energy_kwh`/`projected_daily_kwh` stayed `null` for anyone burning 20 kg
+bags until a *second* "filled to full" 20 kg refuel happened to measure an interval from - that
+surprised the first person to hit it, so 20 kg now also gets a starting value, `246.4 s/kg`,
+scaled by weight from the 25 kg figure (`308 * 20/25`). It's a guess, not a measurement - 20 kg
+bags are reportedly denser coal, so the real rate could differ - but `coefficient_for()` always
+prefers a real measured pair over `DEFAULT_COEFFICIENTS` for either size, so it's only ever used
+until that first real 20 kg pair exists, same as 25 kg's own starting value already works today.
 
 Confirming on `/boiler/refuel` also appends one line to that same `feeder_log.csv`
 (`caveweb/feeder_log.py`), in the same hand-written convention: `# add 200kg 8x25kg`. That file is

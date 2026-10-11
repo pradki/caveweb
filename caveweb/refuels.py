@@ -12,8 +12,12 @@ drugim z nich - stąd współczynnik [s podajnika / kg] per rozmiar worka.
 
 Dla worków 25 kg startowy współczynnik (308 s/kg, do czasu świeższej
 kalibracji) policzono ręcznie z historycznego `feeder_log.csv` (sezon
-2025/26: 2140 kg / 183:23:54 pracy podajnika). Dla 20 kg nie ma jeszcze
-żadnych danych - pierwsze tankowania 20 kg dopiero to ustalą.
+2025/26: 2140 kg / 183:23:54 pracy podajnika). Dla 20 kg nie było żadnych
+danych - stąd prowizoryczna wartość przeskalowana wagowo z 25 kg (308 * 20/25
+= 246.4 s/kg): worki 20 kg to inny węgiel (gęstszy, per wcześniejszą obserwację),
+więc to zgadywanie, nie pomiar - `coefficient_for()` i tak zawsze przedkłada
+realną parę tankowań "do pełna" nad tę wartość startową, więc zniknie samo,
+gdy tylko taka para 20 kg się pojawi.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from . import config
 
 HEADER = ['timestamp', 'bags', 'bag_size_kg', 'total_kg', 'filled_to_full', 'feeder_total_s']
 
-DEFAULT_COEFFICIENTS = {25: 308.0}  # s/kg, patrz docstring modułu
+DEFAULT_COEFFICIENTS = {25: 308.0, 20: 246.4}  # s/kg, patrz docstring modułu
 
 
 @dataclass(frozen=True)
@@ -93,8 +97,8 @@ def coefficient_for(bag_size_kg: int) -> float | None:
     wszystkich par kolejnych tankowań "do pełna", gdzie worek NA POCZĄTKU
     interwału (ten, który się właśnie wypalał) miał ten rozmiar - worek na
     końcu może być inny, to nie ma znaczenia dla tego, co płonęło w trakcie.
-    Bez żadnych pasujących par - wartość startowa (tylko dla 25 kg), inaczej
-    None."""
+    Bez żadnych pasujących par - wartość startowa z DEFAULT_COEFFICIENTS, jeśli
+    jest (25 i 20 kg), inaczej None."""
     records = [r for r in read_all() if r.feeder_total_s is not None]
     samples = []
     for prev, curr in zip(records, records[1:]):
