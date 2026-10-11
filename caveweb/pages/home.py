@@ -63,6 +63,7 @@ def home() -> None:
              body=lambda: pv.render_compact(skip=1))
         tile('thermostat', 'Temperatury', target='/temperatures',
              body=temperatures.render_compact)
+        tile('power', 'Przekaźniki', target='/relays')
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
         tile('water_drop', 'Nawadnianie', subtitle='w przygotowaniu',

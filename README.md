@@ -37,6 +37,7 @@ Two data sources, each for what it is good at:
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
+| `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it and at what priority, and an **Akcja** button to force on/off/flash_on — see [Relays](#relays-manual-channel-control) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
 
@@ -55,9 +56,10 @@ declares which field it wants:
 | `cave/sensors/<kind>/<name>` | `value` | `{"value": 63.4}` |
 | `cave/deye/params/<name>` | `value` | `{"value": 1234}` |
 | `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` — `furnace_temp` is also **published** by this app, from `/boiler`'s Wypalanie button only — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
-| `cave/relay/<module>/<alias>/status` | `state` | `{"state": true}` |
+| `cave/relay/<module>/<alias>/status` | `state` | `{"channel": 3, "state": "flash_on", "by": "caveweb", "priority": 20, ...}` — `state`/`by`/`priority` also drive `/relays`, see [Relays](#relays-manual-channel-control) |
+| `cave/relay/<module>/status` | `channels` | `{"channels": 30, ...}` — the per-module bitmask; `/relays` reads `channels` to know the table's row count and to discover which modules exist at all |
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
-| `cave/relay/<module>/co_pump_boiler/cmd/caveweb` | — | **published** by this app, `{"cmd": "flash_on", "duration": 600, "priority": 20}`, only alongside the Wypalanie boost — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
+| `cave/relay/<module>/<name>/cmd/caveweb` | — | **published** by this app: `co_pump_boiler` automatically alongside the Wypalanie boost (`{"cmd": "flash_on", "duration": 600, "priority": 20}`, see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost)), or any channel manually from `/relays`'s **Akcja** button |
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
@@ -228,6 +230,42 @@ pulse that expires on its own, same failure-safe shape as every other relay comm
 project. After it expires, `heating-controller`'s own reactive logic is expected to pick the pump
 back up anyway, since the furnace is normally still hot enough to exceed the (by-then-reverted,
 lower) setpoint by more than its margin.
+
+### Relays: manual channel control
+
+`/relays` (`caveweb/relay_control.py` + `caveweb/pages/relays.py`) is the second and broadest
+control surface this app has: instead of one fixed command for one fixed purpose (the boost
+above), it's a generic "force any channel of any module to any state" page. Built for a future
+with more than one `waveshare-mqtt-gateway` module - there's only `relay_heating` today, but
+nothing here assumes that stays true.
+
+**Nothing is hardcoded** - no module list, no channel count, no alias names. The gateway already
+publishes everything needed, retained, right after it starts:
+
+- `cave/relay/<module>/status` carries a `channels` field - that's both how a module is
+  *discovered* (`discover_modules()` scans the cache for this exact 4-segment topic shape) and how
+  many rows the table draws.
+- `cave/relay/<module>/<name>/status` (5 segments) carries `channel`, `state`, `by` and `priority`
+  for one channel, under whatever name the gateway considers primary for it (a configured alias,
+  or `ch<N>` when there isn't one). Scanning every topic under a module's prefix
+  (`discover_channel_names()`) recovers the full channel-number → name map with no separate config
+  to keep in sync.
+
+A channel that has never published any status at all (channel count known, but that specific
+channel silent) shows as `ch<N>` with blank state/by/priority, rather than guessing "off" -
+`channel_rows()` only reports what's actually been seen.
+
+**Akcja** opens a small dialog: pick `on` / `off` / `flash_on`, a priority (defaults to 50 -
+deliberately higher than `heating-controller` and `cwu-controller`'s own priority of 10 for
+everything they send, so a manual action actually wins the gateway's arbitration instead of losing
+to whichever automatic service already holds the channel), and a duration - the gateway's
+`flash_on`/`flash_off` require one explicitly (see `waveshare-mqtt-gateway/mqtt_gateway.py`'s
+`VALID_CMDS` handling), and `on`/`off` without one get the gateway's own 1-hour `DEFAULT_LEASE_TTL`
+— `send_command()` always sends an explicit value instead (default 60s) so a manual override
+doesn't quietly outlive the person who set it. The command goes out as
+`cave/relay/<module>/<name>/cmd/caveweb` with the same `{"cmd", "priority", "duration"|"ttl"}`
+shape every other service's commands use - the gateway can't tell a manual click here from an
+automated decision elsewhere.
 
 ## Charts
 
@@ -481,6 +519,7 @@ python tests/test_fuel_level.py
 python tests/test_settings.py
 python tests/test_feeder_log.py
 python tests/test_furnace_boost.py
+python tests/test_relay_control.py
 ```
 
 `test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
@@ -504,7 +543,11 @@ appends without disturbing existing content. `test_furnace_boost.py` covers the 
 state machine: refusing to start without a live setpoint, refusing a second concurrent boost,
 clamping to the setpoint's configured max, the pump getting its own higher-priority `flash_on` on
 the same start, and `check_expired()` reverting correctly both within a running session and on the
-first check after a simulated restart. None of these exercise
+first check after a simulated restart. `test_relay_control.py` covers discovery purely from cache
+contents (module list from bitmask topics only, channel-number-to-name mapping from per-channel
+topics, a channel that's never published anything showing as `ch<N>` with blank fields instead of
+an assumed "off") and `send_command()`'s payload shape for each action, including the default
+duration/TTL and a publish failure. None of these exercise
 `screen_idle_runner.py` or `kiosk_watchdog.py`
 themselves (`swayidle`/`wlr-randr`/a real compositor aren't available to test against) - only the
 pure logic each depends on. If `nicegui` is not installed the tests substitute a stub for it —
