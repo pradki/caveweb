@@ -40,19 +40,16 @@ def home() -> None:
     def boiler_body() -> None:
         # Jeden wiersz, nie `render_compact` (dwie kolumny z podpisami pod
         # spodem) - inaczej temperatura i węgiel łamią się na dwa rzędy i
-        # kafelek rośnie wyżej niż reszta. "~" zamiast podpisów - w jednym
-        # wierszu nie ma miejsca na opis, pełne wyjaśnienie w tooltipach.
-        # Dwie liczby: ile węgla poszło dziś DO TEJ PORY -> ile pójdzie
-        # szacunkowo przez CAŁĄ dobę (ekstrapolacja liniowa z obecnego tempa).
+        # kafelek rośnie wyżej niż reszta. "~" zamiast podpisu - w jednym
+        # wierszu nie ma miejsca na opis, pełne wyjaśnienie w tooltipie.
+        # Tylko prognoza na całą dobę - zużycie "do tej pory" jest już na
+        # /boiler (karta Podajnika), nie trzeba go dublować na kafelku.
         with ui.row().classes('items-baseline gap-1 justify-center flex-nowrap'):
             temp_label = ui.label('–').classes('text-lg font-medium leading-tight')
             ui.label('·').classes('text-xs text-grey-6')
-            live.inline_topic_field(fuel_level.TOPIC, 'today_energy_kwh', prefix='~') \
-                .tooltip('Zużycie węgla dzisiaj do tej pory')
-            ui.label('→').classes('text-xs text-grey-6')
             live.inline_topic_field(fuel_level.TOPIC, 'projected_daily_kwh',
                                     prefix='~', suffix='kWh', digits=0) \
-                .tooltip('Szacowane zużycie całej doby (z dzisiejszego tempa)')
+                .tooltip('Szacowane zużycie węgla za całą dobę (z dzisiejszego tempa)')
         boiler.bind('piec', temp_label)
 
     with tile_grid():

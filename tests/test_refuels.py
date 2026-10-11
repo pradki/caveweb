@@ -53,8 +53,8 @@ refuels.append(bags=8, bag_size_kg=25, filled_to_full=True, feeder_total_s=61600
 refuels.append(bags=8, bag_size_kg=25, filled_to_full=True, feeder_total_s=123200.0)  # drugi interwał też 308 s/kg
 check("współczynnik 25kg z czystych danych = 308 s/kg",
       abs(refuels.coefficient_for(25) - 308.0) < 0.01)
-check("brak danych 20kg -> wartość startowa przeskalowana z 25kg (246.4 s/kg)",
-      abs(refuels.coefficient_for(20) - 246.4) < 0.01)
+check("brak danych 20kg -> ta sama wartość startowa co 25kg, tymczasowo (308 s/kg)",
+      abs(refuels.coefficient_for(20) - 308.0) < 0.01)
 
 config.REFUELS_PATH = tmp_dir / 'mixed.csv'
 # worek na STARCIE interwału decyduje o przypisaniu, nie worek na końcu
@@ -62,7 +62,7 @@ refuels.append(bags=8, bag_size_kg=25, filled_to_full=True, feeder_total_s=0.0)
 refuels.append(bags=10, bag_size_kg=20, filled_to_full=True, feeder_total_s=61600.0)  # spalono 25kg -> 200kg/61600s
 check("interwał liczony do worka, który się wypalał (25kg), nie do tego co dosypano (20kg)",
       abs(refuels.coefficient_for(25) - 308.0) < 0.01
-      and abs(refuels.coefficient_for(20) - 246.4) < 0.01)  # 20kg wciąż na wartości startowej
+      and abs(refuels.coefficient_for(20) - 308.0) < 0.01)  # 20kg wciąż na wartości startowej
 
 config.REFUELS_PATH = tmp_dir / 'skip.csv'
 # "nie do pełna" zrywa parę - interwał obejmujący taki wpis jest pomijany
@@ -75,8 +75,8 @@ check("tankowanie nie do pełna pomijane w obu sąsiadujących interwałach",
 config.REFUELS_PATH = tmp_dir / 'default.csv'
 check("25kg bez żadnych danych -> wartość startowa 308 s/kg",
       refuels.coefficient_for(25) == 308.0)
-check("20kg bez żadnych danych -> wartość startowa 246.4 s/kg",
-      refuels.coefficient_for(20) == 246.4)
+check("20kg bez żadnych danych -> ta sama wartość startowa, tymczasowo (308 s/kg)",
+      refuels.coefficient_for(20) == 308.0)
 
 # --- raz zmierzona para 20kg nadpisuje wartość startową ----------------------
 

@@ -10,14 +10,14 @@ w tamtej chwili. Różnica `total_s` między dwoma kolejnymi tankowaniami "do
 pełna" mówi, ile sekund podajnik pracował, żeby spalić to, co dowieziono przy
 drugim z nich - stąd współczynnik [s podajnika / kg] per rozmiar worka.
 
-Dla worków 25 kg startowy współczynnik (308 s/kg, do czasu świeższej
-kalibracji) policzono ręcznie z historycznego `feeder_log.csv` (sezon
-2025/26: 2140 kg / 183:23:54 pracy podajnika). Dla 20 kg nie było żadnych
-danych - stąd prowizoryczna wartość przeskalowana wagowo z 25 kg (308 * 20/25
-= 246.4 s/kg): worki 20 kg to inny węgiel (gęstszy, per wcześniejszą obserwację),
-więc to zgadywanie, nie pomiar - `coefficient_for()` i tak zawsze przedkłada
-realną parę tankowań "do pełna" nad tę wartość startową, więc zniknie samo,
-gdy tylko taka para 20 kg się pojawi.
+Startowy współczynnik, 308 s/kg, policzono ręcznie z historycznego
+`feeder_log.csv` dla worków 25 kg (sezon 2025/26: 2140 kg / 183:23:54 pracy
+podajnika) - do czasu świeższej kalibracji tymczasowo przyjęty też dla 20 kg
+(tak samo jak kaloryczność 27 MJ/kg w `fuel_level.py` - jedna wspólna wartość
+dla obu rozmiarów). Grudzień/styczeń 2026/27 ma dać osobne, zmierzone
+współczynniki dla każdego rozmiaru - `coefficient_for()` i tak zawsze
+przedkłada realną parę tankowań "do pełna" nad wartość startową, więc to
+tymczasowe uproszczenie zniknie samo, gdy tylko taka para się pojawi.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from . import config
 
 HEADER = ['timestamp', 'bags', 'bag_size_kg', 'total_kg', 'filled_to_full', 'feeder_total_s']
 
-DEFAULT_COEFFICIENTS = {25: 308.0, 20: 246.4}  # s/kg, patrz docstring modułu
+DEFAULT_COEFFICIENTS = {25: 308.0, 20: 308.0}  # s/kg, patrz docstring modułu
 
 
 @dataclass(frozen=True)

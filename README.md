@@ -112,17 +112,19 @@ whichever bag size was actually burning (the *first* entry's size, not necessari
 pair on both sides, since it's no longer true that the interval started and ended at a known
 full tank.
 
-25 kg bags got a starting coefficient, `308 s/kg`, worked out by hand from a full season of
-`/home/sqna/cave/logs/feeder_log.csv` (hand-annotated `# add NNN kg` comment lines around the
-hourly on-time rows) - treat it as provisional, since the per-interval spread in that data was
-wide (one interval alone was 4-6x faster than the rest). 20 kg had no data at all, which meant
-`today_coal_kg`/`today_energy_kwh`/`projected_daily_kwh` stayed `null` for anyone burning 20 kg
-bags until a *second* "filled to full" 20 kg refuel happened to measure an interval from - that
-surprised the first person to hit it, so 20 kg now also gets a starting value, `246.4 s/kg`,
-scaled by weight from the 25 kg figure (`308 * 20/25`). It's a guess, not a measurement - 20 kg
-bags are reportedly denser coal, so the real rate could differ - but `coefficient_for()` always
-prefers a real measured pair over `DEFAULT_COEFFICIENTS` for either size, so it's only ever used
-until that first real 20 kg pair exists, same as 25 kg's own starting value already works today.
+Both bag sizes currently share one starting coefficient, `308 s/kg`, worked out by hand from a
+full season of `/home/sqna/cave/logs/feeder_log.csv` (hand-annotated `# add NNN kg` comment lines
+around the hourly on-time rows) - treat it as provisional, since the per-interval spread in that
+data was wide (one interval alone was 4-6x faster than the rest). 20 kg had no data of its own at
+first, which meant `today_coal_kg`/`today_energy_kwh`/`projected_daily_kwh` stayed `null` for
+anyone burning 20 kg bags until a *second* "filled to full" 20 kg refuel happened to measure an
+interval from - surprising on the very first 20 kg refuel, which is exactly when someone wants to
+see the pipeline working. Sharing 308 s/kg (and the flat 27 MJ/kg calorific value, `ENERGY_MJ_PER_KG`)
+across both sizes for now is a deliberate, acknowledged simplification, not a claim that the two
+coal types burn identically - real per-size measurements are expected once there's been enough of
+a season on 20 kg bags to compare (planned for December/January). `coefficient_for()` always
+prefers a real measured pair over `DEFAULT_COEFFICIENTS` for whichever size it's asked about, so
+each size's shared default quietly stops mattering the moment that size has its own real pair.
 
 Confirming on `/boiler/refuel` also appends one line to that same `feeder_log.csv`
 (`caveweb/feeder_log.py`), in the same hand-written convention: `# add 200kg 8x25kg`. That file is
@@ -173,14 +175,16 @@ nothing fancier - it reads as "if the rest of the day burns like the first part 
 the exact top of midnight (division by zero) and whenever `today_energy_kwh` itself is `null`.
 
 Wired into the Kocioł CO tile on `/home`: `fuel_indicator()` sits next to the tile's title (same
-spot `moc PV` has on the PV tile), and the tile body shows both energy figures together - "~X →
-~Y kWh" (today so far → projected for the day) - alongside the furnace temperature, all in one
-`ui.row` with `flex-nowrap`. Not `LivePanel.render_compact`'s per-value columns (each with its own
-caption underneath): that wrapped onto a second row and made the tile taller than its neighbours.
-`live.inline_topic_field()` draws just the bare value (a `~` prefix instead of a caption marks it
-as an estimate, with the full explanation in a tooltip) for a field read straight off a topic's
-payload, for values that aren't a `LivePanel` sensor. The same two daily figures (as kg and kWh)
-also get their own rows on the Podajnik card in "Praca urządzeń" on `/boiler` - see `boiler.WORK`.
+spot `moc PV` has on the PV tile), and the tile body shows `projected_daily_kwh` - "~Y kWh" -
+alongside the furnace temperature, one `ui.row` with `flex-nowrap`. Not `LivePanel.render_compact`'s
+per-value columns (each with its own caption underneath): that wrapped onto a second row and made
+the tile taller than its neighbours. `live.inline_topic_field()` draws just the bare value (a `~`
+prefix instead of a caption marks it as an estimate, with the full explanation in a tooltip) for a
+field read straight off a topic's payload, for values that aren't a `LivePanel` sensor. Just the
+projection, deliberately: the tile is for "how is today shaping up", and `today_coal_kg`/
+`today_energy_kwh` (how much has actually burned so far) already have their own rows on the
+Podajnik card in "Praca urządzeń" on `/boiler` - see `boiler.WORK` - no need to show both on the
+home tile too.
 
 ### Burning off: a temporary, self-reverting setpoint boost
 
