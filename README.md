@@ -33,7 +33,7 @@ Two data sources, each for what it is good at:
 |-------|---------------|
 | `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
-| `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Saving is not wired yet** (see below) |
+| `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Zapisz** publishes the whole form — see [Writing setpoints](#writing-setpoints) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
@@ -91,10 +91,17 @@ from it — a new parameter in the heating service means regenerating this one f
 
 ### Writing setpoints
 
-Publishing to `cave/heating/setpoints/#` changes how the furnace runs, and for most of them this
-app only ever listens. `/boiler/config`'s **Zapisz** button is still disabled for exactly that
-reason: enabling it for every setpoint means a lot more surface to get wrong. One setpoint is the
-deliberate exception - see "Burning off" below.
+`/boiler/config`'s **Zapisz** publishes every setpoint field on the page to its
+`cave/heating/setpoints/<name>` topic (`{"value": ...}`, retained) - the whole form at once, not a
+diff of what actually changed, matching how **Wczytaj z brokera** already fills every field at
+once. Each numeric value is clamped to its metadata's `[min, max]` before publishing
+(`clamp_value()`) - not cosmetic: `heating-controller`'s `shadow_vault.check_and_correct()` doesn't
+clamp an out-of-range value, it resets that parameter to its *default*, so an unclamped value past
+the edge would silently undo itself instead of applying. A field left empty is skipped rather than
+publishing `null`. This was the one page in this app that only ever listened; the furnace's own
+independent hard safety ceiling (`MAX_FURNACE_TEMP`, checked against the real sensor reading, not
+any setpoint) is unaffected either way - see "Burning off" below for the other, narrower place
+this app writes a setpoint.
 
 ### Writing data: the refuel log
 
@@ -191,11 +198,12 @@ home tile too.
 
 ### Burning off: a temporary, self-reverting setpoint boost
 
-`/boiler`'s **Wypalanie** button (`caveweb/furnace_boost.py`) is the one place this app issues an
-actual command instead of reporting a status: it raises `furnace_temp_setpoint` by 10°C for ten
-minutes, to run the furnace hot enough to burn off buildup, then puts the original value back by
-itself. That's a real exception to "this app never controls the furnace" (see "Writing setpoints"
-above), so it's deliberately narrow and always self-reverting:
+`/boiler`'s **Wypalanie** button (`caveweb/furnace_boost.py`) is a second, narrower way this app
+writes `furnace_temp_setpoint`, distinct from the general publishing in "Writing setpoints" above:
+it raises the setpoint by 10°C for ten minutes, to run the furnace hot enough to burn off buildup,
+then puts the original value back *by itself*, without anyone clicking Zapisz again. That
+self-reverting behaviour is the whole point of a separate mechanism here rather than just using
+the config page for this too:
 
 - The boosted value is clamped to the setpoint's configured `max` (72°C). This isn't cosmetic:
   `heating-controller`'s `shadow_vault.check_and_correct()` doesn't clamp an out-of-range value, it
@@ -520,6 +528,7 @@ python tests/test_settings.py
 python tests/test_feeder_log.py
 python tests/test_furnace_boost.py
 python tests/test_relay_control.py
+python tests/test_boiler_config.py
 ```
 
 `test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
@@ -547,8 +556,11 @@ first check after a simulated restart. `test_relay_control.py` covers discovery 
 contents (module list from bitmask topics only, channel-number-to-name mapping from per-channel
 topics, a channel that's never published anything showing as `ch<N>` with blank fields instead of
 an assumed "off") and `send_command()`'s payload shape for each action, including the default
-duration/TTL and a publish failure. None of these exercise
-`screen_idle_runner.py` or `kiosk_watchdog.py`
+duration/TTL and a publish failure. `test_boiler_config.py` covers `clamp_value()` (type coercion,
+clamping at both ends, int rounding) and `save_to_broker()` against fake input widgets: one
+publish per setpoint, an out-of-range value going out clamped rather than as-typed, an empty field
+skipped rather than publishing `null`, and that a publish failure doesn't raise. None of these
+exercise `screen_idle_runner.py` or `kiosk_watchdog.py`
 themselves (`swayidle`/`wlr-randr`/a real compositor aren't available to test against) - only the
 pure logic each depends on. If `nicegui` is not installed the tests substitute a stub for it —
 only the package imports it, not the logic under test.

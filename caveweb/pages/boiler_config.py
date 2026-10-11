@@ -2,19 +2,28 @@
 
 Strona buduje się sama z metadanych (`heating_params.SETPOINTS`): typ pola,
 zakres i jednostka pochodzą z tego samego słownika, którego pilnuje usługa
-grzewcza, więc nie da się tu wpisać wartości poza jej zakresem.
+grzewcza.
 
-Zapis jest na razie wyłączony: publikacja na `cave/heating/setpoints/#` zmienia
-pracę kotła, a caveweb do tej pory tylko słucha. Wystarczy jedno wywołanie
-publish, ale to decyzja do podjęcia świadomie - patrz README.
+**Zapisz** publikuje WSZYSTKIE pola widoczne na stronie na raz, nie tylko to,
+co faktycznie ruszono - to prosty model "wyślij cały formularz", zgodny z tym,
+jak działa "Wczytaj z brokera" (wypełnia wszystkie pola na raz). Każda
+wartość liczbowa jest przed wysyłką przycinana do [min, max] z metadanych -
+to konieczne, nie kosmetyczne: `heating-controller`'s `shadow_vault.
+check_and_correct()` dla wartości spoza zakresu NIE przycina, tylko resetuje
+cały parametr do jego wartości domyślnej (patrz `furnace_boost.py`, ten sam
+mechanizm uzasadnił tam samo przycięcie). Bez przycięcia tutaj np. zbyt
+entuzjastyczny spinner cicho cofnąłby nastawę do domyślnej zamiast ustawić to,
+co było w polu.
 """
 
 from __future__ import annotations
 __version__ = "0.1"
 
+import json
+
 from nicegui import ui
 
-from .. import heating_params, live
+from .. import heating_params, live, mqttclient
 from ..widgets import page_header, section
 
 
@@ -24,6 +33,22 @@ def spec_for(name: str, meta: dict) -> live.Value:
     digits = 0 if meta['data_type'] in ('int', 'bool') else 1
     return live.value_of(name, meta['topic'], unit=meta['unit'],
                          digits=digits, kind=kind, columns=())
+
+
+def clamp_value(meta: dict, value) -> bool | int | float:
+    """Wartość pola dociśnięta do typu i zakresu z metadanych - osobno od
+    widgetu, żeby dało się to przetestować bez nicegui. Patrz docstring
+    modułu po to, dlaczego przycinanie jest konieczne, nie kosmetyczne."""
+    if meta['data_type'] == 'bool':
+        return bool(value)
+    value = float(value)
+    if meta['min'] is not None:
+        value = max(meta['min'], value)
+    if meta['max'] is not None:
+        value = min(meta['max'], value)
+    if meta['data_type'] == 'int':
+        value = int(round(value))
+    return value
 
 
 class BoilerConfigPage:
@@ -40,16 +65,15 @@ class BoilerConfigPage:
             with ui.row().classes('w-full items-center gap-2'):
                 ui.button('Wczytaj z brokera', icon='download',
                           on_click=lambda: self.load_from_broker()).props('outline')
-                save = ui.button('Zapisz', icon='save').props('disable')
-                with save:
-                    ui.tooltip('Publikowanie nastaw jeszcze nie jest włączone')
+                ui.button('Zapisz', icon='save', on_click=lambda: self.save_to_broker()) \
+                    .props('color=primary')
                 ui.space()
-                ui.label('podgląd nastaw – zmiany nie są wysyłane') \
-                    .classes('text-xs text-orange-6')
+                ui.label('Zapisz wysyła WSZYSTKIE pola poniżej, nie tylko zmienione') \
+                    .classes('text-xs text-grey-6')
 
             section('Nastawy kotła')
             ui.label('kolumna "teraz" to wartość z brokera, pole obok to wartość '
-                     'do wysłania po włączeniu zapisu').classes('text-xs text-grey-7')
+                     'do wysłania przy Zapisz').classes('text-xs text-grey-7')
 
             with ui.column().classes('w-full gap-1'):
                 for name, meta in heating_params.SETPOINTS.items():
@@ -101,6 +125,31 @@ class BoilerConfigPage:
             filled += 1
         if notify:
             ui.notify(f'Wczytano {filled} z {len(self.specs)} nastaw z brokera')
+
+    def save_to_broker(self) -> None:
+        """Publikuje każde pole na jego topic - patrz docstring modułu po
+        uzasadnienie przycinania do [min, max] przed wysyłką."""
+        sent = 0
+        failed = []
+        for name, meta in heating_params.SETPOINTS.items():
+            widget = self.inputs.get(name)
+            if widget is None or widget.value is None:
+                continue
+            value = clamp_value(meta, widget.value)
+
+            info = mqttclient.publish(meta['topic'], json.dumps({'value': value}),
+                                      qos=0, retain=True)
+            rc = getattr(info, 'rc', None)
+            if rc not in (None, 0):
+                failed.append(name)
+            else:
+                sent += 1
+
+        if failed:
+            ui.notify(f'Wysłano {sent}/{len(self.specs)} nastaw - błąd dla: {", ".join(failed)}',
+                      type='warning')
+        else:
+            ui.notify(f'Wysłano {sent} nastaw do brokera', type='positive')
 
 
 @ui.page('/boiler/config')

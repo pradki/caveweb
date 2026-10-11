@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Klient MQTT trzymający ostatnią wartość każdego topiku.
 
-Aplikacja przede wszystkim słucha. `publish()` poniżej ma dwóch wołających:
-`fuel_level.py`, który ogłasza własny wyliczony status (`cave/heating/fuel_level`)
-- tej samej kategorii co `cave/heating/status` czy `cave/cwu/status` z innych
-usług, serwis mówi, co sam policzył, a nie steruje czymkolwiek - i
-`furnace_boost.py`, który publikuje prawdziwą komendę sterującą (chwilowe
-podniesienie `cave/heating/setpoints/furnace_temp` na czas "wypalania"), ale
-zawsze samo-odwracalną: ma zapisany czas powrotu i cofa się sam, nawet po
-restarcie caveweb w trakcie. Patrz README, "Writing data" po więcej. Wartości
+Aplikacja przede wszystkim słucha, ale `publish()` poniżej ma kilku wołających:
+`fuel_level.py` ogłasza własny wyliczony status (`cave/heating/fuel_level`) -
+tej samej kategorii co `cave/heating/status` czy `cave/cwu/status` z innych
+usług, serwis mówi, co sam policzył, a nie steruje czymkolwiek.
+`boiler_config.py` (`/boiler/config`, Zapisz) publikuje nastawy kotła wprost -
+to, co użytkownik wpisał w pole, przycięte do zakresu z metadanych.
+`furnace_boost.py` publikuje samo-odwracalną komendę (chwilowe podniesienie
+`furnace_temp` na czas "wypalania") - ma zapisany czas powrotu i cofa się sam,
+nawet po restarcie caveweb w trakcie. `relay_control.py` (`/relays`, Akcja)
+publikuje ręczne komendy przekaźników (on/off/flash_on) na dowolny kanał.
+Patrz README, "Writing setpoints"/"Burning off"/"Relays" po więcej. Wartości
 z brokera lądują w pamięci procesu (`cache`), a strony odczytują je w swoich
 timerach: paho biegnie własnym wątkiem, my tylko podmieniamy krotki w
 słowniku pod zamkiem.

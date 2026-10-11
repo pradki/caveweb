@@ -122,12 +122,12 @@ FURNACE_BOOST_PATH = resolve_furnace_boost_path()
 # Co ile sekund wykres sam dociąga nowe dane
 REFRESH_SECONDS = 60.0
 
-# Broker MQTT - źródło wartości bieżących. Aplikacja głównie subskrybuje;
-# publikuje jeden wyliczony status co godzinę (cave/heating/fuel_level, patrz
-# fuel_level.py) i, na żądanie z /boiler, jedną samo-odwracalną komendę -
-# chwilowe podniesienie nastawy pieca na czas wypalania (furnace_boost.py,
-# zawsze cofane samo po czasie, patrz tam). Poza tymi dwoma wyjątkami niczym
-# nie steruje.
+# Broker MQTT - źródło wartości bieżących. Aplikacja głównie subskrybuje, ale
+# też pisze: jeden wyliczony status co godzinę (cave/heating/fuel_level, patrz
+# fuel_level.py), nastawy kotła wprost z /boiler/config (Zapisz, patrz
+# boiler_config.py), chwilowe samo-odwracalne podniesienie nastawy pieca na
+# czas wypalania (furnace_boost.py) i ręczne komendy przekaźników z /relays
+# (relay_control.py). Patrz README "Writing setpoints"/"Burning off"/"Relays".
 MQTT = {
     'host': '127.0.0.1',
     'port': 1883,
