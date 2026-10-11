@@ -8,7 +8,7 @@ __version__ = "0.1"
 
 from nicegui import app, ui
 
-from .. import fuel_level, mqttclient, refuels, topics
+from .. import feeder_log, fuel_level, mqttclient, refuels, topics
 from ..widgets import page_header
 
 STORAGE_BAG_SIZE_KEY = 'refuel_bag_size_kg'
@@ -81,6 +81,9 @@ def refuel() -> None:
             # Nie czekamy na godzinny cykl fuel_level.publish_loop() - świeże
             # tankowanie od razu zmienia szacunek, niech broker to zobaczy teraz.
             fuel_level.publish_once()
+            # Ten sam dziennik, który od lat prowadzony jest ręcznie w
+            # feeder_log.csv (komentarze "# add <kg>kg...") - patrz feeder_log.py.
+            feeder_log.append_refuel_comment(record.total_kg, record.bags, record.bag_size_kg)
             ui.notify(
                 f'Zapisano: {record.total_kg:.0f} kg ({record.timestamp:%Y-%m-%d %H:%M})',
                 type='positive')

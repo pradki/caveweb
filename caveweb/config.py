@@ -77,13 +77,57 @@ def resolve_screen_idle_settings_path() -> Path:
 
 SCREEN_IDLE_SETTINGS_PATH = resolve_screen_idle_settings_path()
 
+# feeder_log.csv - NIE własny plik caveweb: to ten sam CSV, w którym
+# heating-controller (feeder_logger.py) zlicza godzinowy czas pracy podajnika.
+# caveweb tylko dopisuje do niego komentarz o tankowaniu - patrz feeder_log.py.
+_FEEDER_LOG_CANDIDATES = [
+    Path('/home/sqna/cave/logs/feeder_log.csv'),
+    Path.home() / 'cave_logs' / 'feeder_log.csv',
+]
+
+
+def resolve_feeder_log_path() -> Path:
+    env = os.environ.get('CAVE_FEEDER_LOG_PATH')
+    if env:
+        return Path(env)
+    for candidate in _FEEDER_LOG_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return _FEEDER_LOG_CANDIDATES[-1]
+
+
+FEEDER_LOG_PATH = resolve_feeder_log_path()
+
+# Stan aktywnego "wypalania" (chwilowe +10°C na piecu, patrz furnace_boost.py) -
+# osobny mały plik jak screen_idle.json, żeby restart caveweb w trakcie
+# wypalania nie zgubił, do czego i kiedy wrócić.
+_FURNACE_BOOST_CANDIDATES = [
+    Path('/home/sqna/cave/logs/furnace_boost.json'),
+    Path.home() / 'cave_logs' / 'furnace_boost.json',
+]
+
+
+def resolve_furnace_boost_path() -> Path:
+    env = os.environ.get('CAVE_FURNACE_BOOST_PATH')
+    if env:
+        return Path(env)
+    for candidate in _FURNACE_BOOST_CANDIDATES:
+        if candidate.parent.exists():
+            return candidate
+    return _FURNACE_BOOST_CANDIDATES[-1]
+
+
+FURNACE_BOOST_PATH = resolve_furnace_boost_path()
+
 # Co ile sekund wykres sam dociąga nowe dane
 REFRESH_SECONDS = 60.0
 
-# Broker MQTT - źródło wartości bieżących. Aplikacja subskrybuje wszystko i
-# publikuje jeden wyliczony status (cave/heating/fuel_level, co godzinę -
-# patrz fuel_level.py), nigdy komendę sterującą, więc nie może wpłynąć na
-# pracę kotła, falownika ani przekaźników.
+# Broker MQTT - źródło wartości bieżących. Aplikacja głównie subskrybuje;
+# publikuje jeden wyliczony status co godzinę (cave/heating/fuel_level, patrz
+# fuel_level.py) i, na żądanie z /boiler, jedną samo-odwracalną komendę -
+# chwilowe podniesienie nastawy pieca na czas wypalania (furnace_boost.py,
+# zawsze cofane samo po czasie, patrz tam). Poza tymi dwoma wyjątkami niczym
+# nie steruje.
 MQTT = {
     'host': '127.0.0.1',
     'port': 1883,

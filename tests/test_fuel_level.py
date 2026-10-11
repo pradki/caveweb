@@ -6,6 +6,7 @@
 
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -57,6 +58,29 @@ payload = fuel_level.estimate()
 check("today_coal_kg liczony z today_s i współczynnika", abs(payload['today_coal_kg'] - 10.0) < 0.1)
 check("today_energy_kwh = kg * 27 MJ/kg / 3.6 MJ/kWh",
       abs(payload['today_energy_kwh'] - (10.0 * 27.0 / 3.6)) < 0.1)
+
+# --- projected_daily_kwh: ekstrapolacja liniowa wg pory dnia -----------------
+
+noon = datetime(2026, 10, 11, 12, 0, 0)
+payload = fuel_level.estimate(now=noon)
+expected_today_kwh = 10.0 * 27.0 / 3.6
+check("w południe (połowa doby) projekcja to 2x dzisiejsze zużycie",
+      abs(payload['projected_daily_kwh'] - 2 * expected_today_kwh) < 0.1)
+
+six_am = datetime(2026, 10, 11, 6, 0, 0)
+payload = fuel_level.estimate(now=six_am)
+check("o 6 rano (1/4 doby) projekcja to 4x dzisiejsze zużycie",
+      abs(payload['projected_daily_kwh'] - 4 * expected_today_kwh) < 0.1)
+
+midnight = datetime(2026, 10, 11, 0, 0, 0)
+payload = fuel_level.estimate(now=midnight)
+check("dokładnie o północy (dzielenie przez zero) -> None, nie wyjątek",
+      payload['projected_daily_kwh'] is None)
+
+set_current_total_s(1000.0 + 15400.0)  # bez today_s w cache
+payload = fuel_level.estimate(now=noon)
+check("brak today_energy_kwh -> brak też projekcji",
+      payload['today_energy_kwh'] is None and payload['projected_daily_kwh'] is None)
 
 # --- druga para "do pełna" nadpisuje współczynnik zmierzoną wartością --------
 

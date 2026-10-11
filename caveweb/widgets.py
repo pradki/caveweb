@@ -15,13 +15,17 @@ TILE_CLASSES = (
 )
 
 
-def page_header(title: str, back: str | None = None) -> None:
-    """Górny pasek z opcjonalnym przyciskiem powrotu."""
-    with ui.header().classes('bg-blue-900 text-white items-center'):
-        if back is not None:
-            ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back)) \
-                .props('flat round color=white dense')
-        ui.label(title).classes('text-lg font-medium')
+def page_header(title: str, back: str | None = None, right: Callable | None = None) -> None:
+    """Górny pasek z opcjonalnym przyciskiem powrotu i czymś dodatkowym z
+    prawej strony (np. zegarem na /home - patrz `live.clock_label`)."""
+    with ui.header().classes('bg-blue-900 text-white items-center justify-between'):
+        with ui.row().classes('items-center gap-2'):
+            if back is not None:
+                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back)) \
+                    .props('flat round color=white dense')
+            ui.label(title).classes('text-lg font-medium')
+        if right is not None:
+            right()
 
 
 def tile(icon: str, title: str, target: str | None = None,

@@ -13,7 +13,10 @@ który się wtedy akurat wypalał (patrz `refuels.coefficient_for`).
 Payload niesie też dobowe zużycie (`today_coal_kg`/`today_energy_kwh`), liczone
 z pola `today_s` licznika podajnika (ten sam współczynnik, reset o północy po
 stronie bramki) i orientacyjnej wartości opałowej węgla (`ENERGY_MJ_PER_KG`) -
-w kWh, bo to łatwiej porównać z resztą instalacji niż kg.
+w kWh, bo to łatwiej porównać z resztą instalacji niż kg. Do tego
+`projected_daily_kwh` - to samo zużycie wyciągnięte liniowo na całą dobę wg
+pory dnia (np. 15 kWh do południa -> ~30 kWh/24h), czyli odpowiedź na pytanie
+"ile węgla pójdzie dzisiaj w sumie", a nie tylko "ile poszło do tej pory".
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ __version__ = "0.1"
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 from . import mqttclient, refuels, topics
 
@@ -65,7 +69,19 @@ def _daily_coal(bag_size_kg: int | None, today_s: float | None) -> tuple[float |
     return kg, kwh
 
 
-def estimate(current_total_s: float | None = None) -> dict | None:
+def _projected_daily(today_kwh: float | None, now: datetime) -> float | None:
+    """Dzisiejsze zużycie wyciągnięte liniowo na całą dobę wg aktualnej pory
+    dnia - `None` bez danych o dzisiejszym zużyciu albo dokładnie o północy
+    (dzielenie przez zero; i tak wtedy today_kwh też dopiero startuje od zera)."""
+    if today_kwh is None:
+        return None
+    elapsed_fraction = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+    if elapsed_fraction <= 0:
+        return None
+    return today_kwh / elapsed_fraction
+
+
+def estimate(current_total_s: float | None = None, now: datetime | None = None) -> dict | None:
     """Payload do opublikowania, albo None gdy nie ma jeszcze żadnego
     tankowania w dzienniku (nic do szacowania)."""
     records = refuels.read_all()
@@ -94,6 +110,7 @@ def estimate(current_total_s: float | None = None) -> dict | None:
 
     today_s = mqttclient.cache.value(FEEDER_COUNTERS_TOPIC, 'today_s')
     today_kg, today_kwh = _daily_coal(active_bag_size, today_s)
+    projected_kwh = _projected_daily(today_kwh, now or datetime.now())
 
     last = records[-1]
     return {
@@ -107,6 +124,7 @@ def estimate(current_total_s: float | None = None) -> dict | None:
         'coefficient_s_per_kg': refuels.coefficient_for(active_bag_size),
         'today_coal_kg': None if today_kg is None else round(today_kg, 1),
         'today_energy_kwh': None if today_kwh is None else round(today_kwh, 1),
+        'projected_daily_kwh': None if projected_kwh is None else round(projected_kwh, 1),
     }
 
 

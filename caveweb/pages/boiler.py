@@ -9,9 +9,11 @@ podajnika z liczników bramy przekaźników.
 from __future__ import annotations
 __version__ = "0.1"
 
+from datetime import datetime
+
 from nicegui import ui
 
-from .. import heating_params, live, topics
+from .. import fuel_level, furnace_boost, heating_params, live, topics
 from ..widgets import page_header, section
 
 
@@ -56,12 +58,19 @@ WORK = [
                   key='total_s', columns=()),
     live.value_of('Podajnik dziś', topics.relay_counters('co_feeder'), kind='duration',
                   key='today_s', columns=()),
+    # Nie z licznika przekaźnika - z wyliczonego statusu paliwa (fuel_level.py),
+    # ten sam today_s przeliczony na kg/kWh wg współczynnika aktualnego worka.
+    live.value_of('Podajnik dziś (węgiel)', fuel_level.TOPIC, key='today_coal_kg',
+                  unit='kg', digits=1, columns=()),
+    live.value_of('Podajnik dziś (energia)', fuel_level.TOPIC, key='today_energy_kwh',
+                  unit='kWh', digits=1, columns=()),
 ]
 
 # (tytuł, ikona, [(podpis, spec), ...]) - karty w render_device_cards
 DEVICES = [
     ('Dmuchawa', 'mode_fan', [('total', WORK[0]), ('dziś', WORK[1])]),
-    ('Podajnik', 'conveyor_belt', [('total', WORK[2]), ('dziś', WORK[3])]),
+    ('Podajnik', 'conveyor_belt', [('total', WORK[2]), ('dziś', WORK[3]),
+                                   ('dziś (kg)', WORK[4]), ('dziś (kWh)', WORK[5])]),
 ]
 
 # Najważniejsze nastawy - pełna lista jest na stronie konfiguracji
@@ -77,6 +86,42 @@ KEY_SETPOINTS = [
 ]
 
 
+def furnace_boost_controls() -> None:
+    """Przycisk "Wypalanie" (+10°C na 10 minut, patrz furnace_boost.py) i jego
+    stan - zamienia się w "Anuluj", gdy wypalanie trwa, z odliczaniem."""
+    with ui.row().classes('w-full items-center gap-2'):
+        start_btn = ui.button('Wypalanie', icon='whatshot',
+                              on_click=lambda: do_start()).props('outline color=orange')
+        cancel_btn = ui.button('Anuluj wypalanie', icon='close',
+                               on_click=lambda: do_cancel()).props('outline color=negative')
+        status = ui.label('').classes('text-xs text-grey-6')
+
+    def refresh() -> None:
+        state = furnace_boost.load_state()
+        start_btn.visible = state is None
+        cancel_btn.visible = state is not None
+        if state is None:
+            status.text = ''
+            return
+        remaining = max(0, int((datetime.fromisoformat(state['expires_at'])
+                               - datetime.now()).total_seconds()))
+        status.text = (f'Aktywne: {state["boosted_value"]:.0f}°C, '
+                      f'jeszcze {remaining // 60}:{remaining % 60:02d}')
+
+    def do_start() -> None:
+        ok, message = furnace_boost.start_boost()
+        ui.notify(message, type='positive' if ok else 'warning')
+        refresh()
+
+    def do_cancel() -> None:
+        ok, message = furnace_boost.cancel_boost()
+        ui.notify(message, type='positive' if ok else 'warning')
+        refresh()
+
+    refresh()
+    ui.timer(5.0, refresh)
+
+
 @ui.page('/boiler')
 def boiler() -> None:
     page_header('Kocioł CO', back='/home')
@@ -90,6 +135,8 @@ def boiler() -> None:
                       on_click=lambda: ui.navigate.to('/boiler/refuel')).props('outline')
             ui.button('Wykres temperatur', icon='show_chart',
                       on_click=lambda: ui.navigate.to('/charts/temperature')).props('flat')
+
+        furnace_boost_controls()
 
         for title, values in (('Kocioł', FURNACE), ('Bufor i dom', HOUSE)):
             section(title)

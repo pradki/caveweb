@@ -15,7 +15,7 @@ from support import check, done, ensure_nicegui
 
 ensure_nicegui()
 
-from caveweb import heating_params, live, topics
+from caveweb import fuel_level, heating_params, live, topics
 from caveweb.pages import boiler, boiler_config, home, pv, temperatures
 
 # --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
@@ -121,13 +121,16 @@ for name, values in PANELS.items():
 check("piec na stronie kotła bierze topic z metadanych",
       boiler.FURNACE[0].topics == (heating_params.PARAMS['furnace_temp_sensor']['topic'],))
 check("liczniki przekaźnika czytają total_s i today_s",
-      [spec.key for spec in boiler.WORK] == ['total_s', 'today_s', 'total_s', 'today_s'])
+      [spec.key for spec in boiler.WORK[:4]] == ['total_s', 'today_s', 'total_s', 'today_s'])
 check("czasy pracy formatowane jako HH:MM:SS",
-      all(spec.kind == 'duration' for spec in boiler.WORK))
+      all(spec.kind == 'duration' for spec in boiler.WORK[:4]))
 check("liczniki przekaźników nie mają awaryjnej kolumny w bazie",
       all(spec.columns == () for spec in boiler.WORK))
 check("DEVICES paruje total+dziś pod wspólnym tytułem, z WORK po kolei",
       [spec for _, _, rows in boiler.DEVICES for _, spec in rows] == boiler.WORK)
+check("dobowe zużycie węgla podajnika czyta fuel_level.TOPIC, nie licznik przekaźnika",
+      [spec.topics for spec in boiler.WORK[4:]] == [(fuel_level.TOPIC,)] * 2
+      and [spec.key for spec in boiler.WORK[4:]] == ['today_coal_kg', 'today_energy_kwh'])
 check("liczniki falownika wskazują kolumnę _end",
       [spec.columns for spec in pv.TODAY] == [
           ('battery_charge_today_end',),

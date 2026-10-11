@@ -31,8 +31,8 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
-| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime; the key setpoints |
+| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Saving is not wired yet** (see below) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
@@ -54,10 +54,10 @@ declares which field it wants:
 |-------|-------|---------|
 | `cave/sensors/<kind>/<name>` | `value` | `{"value": 63.4}` |
 | `cave/deye/params/<name>` | `value` | `{"value": 1234}` |
-| `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` |
+| `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` — `furnace_temp` is also **published** by this app, from `/boiler`'s Wypalanie button only — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
 | `cave/relay/<module>/<alias>/status` | `state` | `{"state": true}` |
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
-| `cave/heating/fuel_level` | `value`, `today_energy_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
+| `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -88,10 +88,10 @@ from it — a new parameter in the heating service means regenerating this one f
 
 ### Writing setpoints
 
-Publishing to `cave/heating/setpoints/#` changes how the furnace runs, and this app has so far
-only ever listened. So the configuration page renders the inputs and the current values but the
-**Zapisz** button is disabled: enabling it means adding a `publish()` to `mqttclient` and
-wiring the button to it. Deliberate decision, not an oversight.
+Publishing to `cave/heating/setpoints/#` changes how the furnace runs, and for most of them this
+app only ever listens. `/boiler/config`'s **Zapisz** button is still disabled for exactly that
+reason: enabling it for every setpoint means a lot more surface to get wrong. One setpoint is the
+deliberate exception - see "Burning off" below.
 
 ### Writing data: the refuel log
 
@@ -120,6 +120,13 @@ clean pair of 20 kg refuels establishes it. `coefficient_for()` always prefers w
 itself has over the hardcoded starting value, so the estimate keeps improving as real data comes
 in and the one-off historical number becomes irrelevant.
 
+Confirming on `/boiler/refuel` also appends one line to that same `feeder_log.csv`
+(`caveweb/feeder_log.py`), in the same hand-written convention: `# add 200kg 8x25kg`. That file is
+owned by `heating-controller`'s `feeder_logger.py`, a **separate process** that does a full
+read-and-rewrite of the whole CSV on every feeder on-time update - a bare append from here could
+land mid-rewrite and simply vanish. Both sides now take the same `fcntl.flock` around their
+respective operation (see that service's README) so one can't clobber the other.
+
 ### Publishing: the fuel level estimate
 
 `caveweb/fuel_level.py` is the other write path - the only thing this app publishes to MQTT
@@ -135,7 +142,7 @@ itself, not a command that controls anything. Once an hour (`publish_loop()`, st
   "last_refuel_timestamp": "2026-10-10T18:00:00",
   "last_refuel_total_s": 1000.0, "last_refuel_filled_to_full": true,
   "last_refuel_bag_size_kg": 25, "coefficient_s_per_kg": 308.0,
-  "today_coal_kg": 10.0, "today_energy_kwh": 75.0
+  "today_coal_kg": 10.0, "today_energy_kwh": 75.0, "projected_daily_kwh": 150.0
 }
 ```
 
@@ -152,17 +159,50 @@ anything subscribing can see *why* the number is what it is, not just the number
 `today_s` (from `cave/relay/relay_heating/co_feeder/counters`, reset at the gateway's midnight)
 divided by the currently-active bag's coefficient, times a flat 27 MJ/kg (`ENERGY_MJ_PER_KG`) to
 get kWh - coal composition varies enough that this is a rough figure, not a calibrated one, but
-kWh is easier to compare against the rest of the installation than kg. Both are `null` until a
-refuel has been logged (no bag size to pick a coefficient from yet).
+kWh is easier to compare against the rest of the installation than kg. All three are `null` until
+a refuel has been logged (no bag size to pick a coefficient from yet).
+
+`projected_daily_kwh` answers a different question: not "how much has burned so far today" but
+"how much will burn by midnight at this rate" - `today_energy_kwh` divided by how much of the day
+has elapsed (`_projected_daily()`), so 15 kWh by noon projects to ~30 kWh/24h. Linear extrapolation,
+nothing fancier - it reads as "if the rest of the day burns like the first part did". `null` at
+the exact top of midnight (division by zero) and whenever `today_energy_kwh` itself is `null`.
 
 Wired into the Kocioł CO tile on `/home`: `fuel_indicator()` sits next to the tile's title (same
-spot `moc PV` has on the PV tile), and `today_energy_kwh` sits in the same row as the furnace
-temperature in the tile body - one `ui.row` with `flex-nowrap`, not `LivePanel.render_compact`'s
-per-value columns (each with its own caption underneath), which wrapped onto a second row and
-made the tile taller than its neighbours. `live.inline_topic_field()` draws just the bare value
-(a `~` prefix instead of a caption marks it as an estimate, with the full explanation - "szacowane
-zużycie węgla dzisiaj" - in a tooltip) for a field read straight off a topic's payload, for values
-that aren't a `LivePanel` sensor.
+spot `moc PV` has on the PV tile), and the tile body shows both energy figures together - "~X →
+~Y kWh" (today so far → projected for the day) - alongside the furnace temperature, all in one
+`ui.row` with `flex-nowrap`. Not `LivePanel.render_compact`'s per-value columns (each with its own
+caption underneath): that wrapped onto a second row and made the tile taller than its neighbours.
+`live.inline_topic_field()` draws just the bare value (a `~` prefix instead of a caption marks it
+as an estimate, with the full explanation in a tooltip) for a field read straight off a topic's
+payload, for values that aren't a `LivePanel` sensor. The same two daily figures (as kg and kWh)
+also get their own rows on the Podajnik card in "Praca urządzeń" on `/boiler` - see `boiler.WORK`.
+
+### Burning off: a temporary, self-reverting setpoint boost
+
+`/boiler`'s **Wypalanie** button (`caveweb/furnace_boost.py`) is the one place this app issues an
+actual command instead of reporting a status: it raises `furnace_temp_setpoint` by 10°C for ten
+minutes, to run the furnace hot enough to burn off buildup, then puts the original value back by
+itself. That's a real exception to "this app never controls the furnace" (see "Writing setpoints"
+above), so it's deliberately narrow and always self-reverting:
+
+- The boosted value is clamped to the setpoint's configured `max` (72°C). This isn't cosmetic:
+  `heating-controller`'s `shadow_vault.check_and_correct()` doesn't clamp an out-of-range value, it
+  resets the parameter to its *default* (60°C) - publishing an un-clamped "+10" past the max would
+  silently undo the boost instead of applying it.
+- State (`original_value`, `boosted_value`, `expires_at`) is written to a small JSON file
+  (`config.FURNACE_BOOST_PATH`), not just kept in memory - a caveweb restart mid-boost must not
+  strand the furnace at the raised setpoint. `watch_loop()` (started from `on_startup`, polling
+  every 15s) checks the expiry regardless of whether it's the same process that started the boost;
+  if the deadline already passed while caveweb was down, it reverts immediately on the first check.
+  This is the same "decoupled renewal/watchdog" shape used elsewhere in this project for exactly
+  the same reason (see e.g. `heating-controller`'s `ping_loop`).
+- A second click while a boost is active is refused, rather than adding another +10 on top of the
+  already-raised value - the button becomes "Anuluj wypalanie" instead, for an immediate manual
+  revert.
+- None of this touches `MAX_FURNACE_TEMP`, `heating-controller`'s independent hard safety ceiling
+  compared against the *actual* sensor reading, not the setpoint - that stays in force no matter
+  what the setpoint says.
 
 ## Charts
 
@@ -414,6 +454,8 @@ python tests/test_pages.py
 python tests/test_refuels.py
 python tests/test_fuel_level.py
 python tests/test_settings.py
+python tests/test_feeder_log.py
+python tests/test_furnace_boost.py
 ```
 
 `test_db.py` builds a temporary database with metrica's schema. `test_config.py` covers the
@@ -429,9 +471,15 @@ generated ECharts series. `test_refuels.py` covers the append-only log round-tri
 `coefficient_for()` - which pairs count, which don't, and that an interval is attributed to the
 bag size that was actually burning. `test_fuel_level.py` covers the level-replay model: resets on
 a full fill, adds on a partial one, caps at tank capacity, and picks up a measured coefficient
-over the hardcoded starting one once real pairs exist. `test_settings.py` covers the screen-idle
-settings round-trip, defaults on a missing or partial file, and that a corrupt file falls back
-instead of raising. None of these exercise `screen_idle_runner.py` or `kiosk_watchdog.py`
+over the hardcoded starting one once real pairs exist, and the `projected_daily_kwh` linear
+extrapolation (including the midnight division-by-zero edge). `test_settings.py` covers the
+screen-idle settings round-trip, defaults on a missing or partial file, and that a corrupt file
+falls back instead of raising. `test_feeder_log.py` covers the refuel-comment format and that it
+appends without disturbing existing content. `test_furnace_boost.py` covers the boost/cancel/expiry
+state machine: refusing to start without a live setpoint, refusing a second concurrent boost,
+clamping to the setpoint's configured max, and `check_expired()` reverting correctly both within
+a running session and on the first check after a simulated restart. None of these exercise
+`screen_idle_runner.py` or `kiosk_watchdog.py`
 themselves (`swayidle`/`wlr-randr`/a real compositor aren't available to test against) - only the
 pure logic each depends on. If `nicegui` is not installed the tests substitute a stub for it —
 only the package imports it, not the logic under test.

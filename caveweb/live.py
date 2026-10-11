@@ -12,6 +12,7 @@ __version__ = "0.1"
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable
 
 from nicegui import run, ui
@@ -304,6 +305,19 @@ def inline_topic_field(topic: str, field: str, prefix: str = '', suffix: str = '
     ui.timer(0.1, refresh, once=True)
     ui.timer(interval, refresh)
     return value_label
+
+
+def clock_label(interval: float = 1.0):
+    """Zegar YYYY-MM-DD HH:MM:SS - czas serwera (Pi), nie przeglądarki, więc
+    zgadza się z tym, co widać w logach i na wykresach."""
+    label = ui.label('').classes('text-sm font-mono px-3')
+
+    def tick() -> None:
+        label.text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    tick()
+    ui.timer(interval, tick)
+    return label
 
 
 def mqtt_status_label(interval: float = 5.0):

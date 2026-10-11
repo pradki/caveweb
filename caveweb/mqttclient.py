@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """Klient MQTT trzymający ostatnią wartość każdego topiku.
 
-Aplikacja przede wszystkim słucha - nie publikuje nastaw ani komend, więc nie
-może wpłynąć na pracę kotła, falownika ani przekaźników. Jeden wyjątek:
-`publish()` poniżej, używany wyłącznie przez `fuel_level.py` do opublikowania
-własnego, wyliczonego statusu (`cave/heating/fuel_level`) - to tej samej
-kategorii co `cave/heating/status` czy `cave/cwu/status` z innych usług:
-serwis ogłasza coś, co sam policzył, a nie steruje czymkolwiek. Patrz README,
-"Writing data" po więcej. Wartości z brokera lądują w pamięci procesu
-(`cache`), a strony odczytują je w swoich timerach: paho biegnie własnym
-wątkiem, my tylko podmieniamy krotki w słowniku pod zamkiem.
+Aplikacja przede wszystkim słucha. `publish()` poniżej ma dwóch wołających:
+`fuel_level.py`, który ogłasza własny wyliczony status (`cave/heating/fuel_level`)
+- tej samej kategorii co `cave/heating/status` czy `cave/cwu/status` z innych
+usług, serwis mówi, co sam policzył, a nie steruje czymkolwiek - i
+`furnace_boost.py`, który publikuje prawdziwą komendę sterującą (chwilowe
+podniesienie `cave/heating/setpoints/furnace_temp` na czas "wypalania"), ale
+zawsze samo-odwracalną: ma zapisany czas powrotu i cofa się sam, nawet po
+restarcie caveweb w trakcie. Patrz README, "Writing data" po więcej. Wartości
+z brokera lądują w pamięci procesu (`cache`), a strony odczytują je w swoich
+timerach: paho biegnie własnym wątkiem, my tylko podmieniamy krotki w
+słowniku pod zamkiem.
 
 Payloady w cave to JSON publikowany zwykle z retain=True, więc po podłączeniu
 broker od razu dosyła stan bieżący. Interesujące pole zależy od publishera:

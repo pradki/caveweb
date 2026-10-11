@@ -5,7 +5,7 @@ import asyncio
 
 from nicegui import app, ui
 
-from . import config, fuel_level, mqttclient
+from . import config, fuel_level, furnace_boost, mqttclient
 from .pages import home
 from .pages import charts
 from .pages import temperature
@@ -30,3 +30,4 @@ def start_mqtt() -> None:
     """Klient MQTT startuje razem z serwerem, już po wczytaniu konfiguracji."""
     mqttclient.start(**config.MQTT)
     asyncio.create_task(fuel_level.publish_loop())
+    asyncio.create_task(furnace_boost.watch_loop())
