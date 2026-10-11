@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Wrapper na swayidle, konfigurowalny z poziomu caveweb (kafelek
-Konfiguracja -> /settings) bez przepisywania jednostki systemd za każdym
-razem ustawienia się zmienią. Ustawienia czytane z JSON pod ścieżką poniżej
-(ta sama, której używa caveweb/config.py - patrz tam komentarz); caveweb po
-zapisaniu zmiany sam robi `systemctl --user restart screen-idle.service`,
-więc nowe ustawienia działają od razu, nie dopiero od następnego rozruchu.
+Konfiguracja -> /settings) bez przepisywania jednostki systemd. Ustawienia
+czytane z JSON pod ścieżką poniżej (ta sama, której używa caveweb/config.py -
+patrz tam komentarz).
+
+`swayidle` sam zawsze działa, z `timeout` wziętym z ustawień w chwili startu -
+to jedyna wartość "wypieczona" w argumentach procesu, więc tylko jej zmiana
+wymaga restartu usługi (caveweb robi to sam po zapisaniu /settings, patrz
+`pages/settings.py::confirm`). `enabled` i `restart_wayvnc_on_wake` są
+czytane na nowo przy KAŻDYM zdarzeniu (`--off`/`--resume` niżej), więc
+przełączenie ich w UI działa od razu, bez restartu czegokolwiek - stąd ten
+skrypt wywołuje sam siebie jako polecenia swayidle zamiast gołych `wlr-randr`.
 
 Samodzielny skrypt (bez zależności od pakietu caveweb/nicegui) - prościej go
 uruchamiać z dowolnego Pythona bez aktywowania venv, gdyby kiedyś było trzeba.
@@ -14,7 +20,7 @@ from __future__ import annotations
 
 import json
 import os
-import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,26 +44,34 @@ def load_settings() -> dict:
     return dict(DEFAULTS)
 
 
-def main() -> None:
-    settings = load_settings()
+def do_off() -> None:
+    """Wywoływane przez swayidle po `timeout` - no-op, gdy wygaszacz jest
+    aktualnie wyłączony w ustawieniach (sprawdzane na żywo, nie przy starcie)."""
+    if load_settings()['enabled']:
+        subprocess.run(['wlr-randr', '--output', OUTPUT, '--off'], check=False)
 
-    if not settings['enabled']:
-        # Wygaszacz wyłączony - usługa ma zostać "aktywna" (systemd nie
-        # potraktuje jej jako awarii), ale nic nie robi, dopóki ktoś nie
-        # włączy go z powrotem (co i tak restartuje tę usługę).
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-        signal.pause()
+
+def do_resume() -> None:
+    """Wywoływane przez swayidle po wykryciu ruchu - ekran wraca ZAWSZE,
+    niezależnie od `enabled`: inaczej dotyk po zmianie ustawienia w trakcie
+    wygaszenia zostawiałby ekran czarny bez wyjścia."""
+    subprocess.run(['wlr-randr', '--output', OUTPUT, '--on'], check=False)
+    if load_settings()['restart_wayvnc_on_wake']:
+        subprocess.run(['sudo', '-n', 'systemctl', 'restart', 'wayvnc.service'], check=False)
+
+
+def main() -> None:
+    if len(sys.argv) > 1:
+        {'--off': do_off, '--resume': do_resume}[sys.argv[1]]()
         return
 
-    resume_cmd = f'wlr-randr --output {OUTPUT} --on'
-    if settings['restart_wayvnc_on_wake']:
-        resume_cmd += '; sudo -n systemctl restart wayvnc.service'
-
+    timeout = int(load_settings()['timeout_seconds'])
+    python = sys.executable
+    script = str(Path(__file__).resolve())
     os.execvp('swayidle', [
         'swayidle', '-w',
-        'timeout', str(int(settings['timeout_seconds'])),
-        f'wlr-randr --output {OUTPUT} --off',
-        'resume', resume_cmd,
+        'timeout', str(timeout), f'{python} {script} --off',
+        'resume', f'{python} {script} --resume',
     ])
 
 

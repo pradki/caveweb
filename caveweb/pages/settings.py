@@ -34,10 +34,15 @@ def save(settings: dict) -> None:
 
 
 def restart_screen_idle() -> tuple[bool, str]:
-    """Restartuje screen-idle.service, żeby nowe ustawienia zadziałały od
-    razu. Błąd (np. uruchomione na stacji deweloperskiej, bez tej usługi) nie
-    ma być fatalny - plik ustawień już jest zapisany, usługa i tak go
-    przeczyta przy swoim następnym (re)starcie."""
+    """Restartuje screen-idle.service - potrzebne TYLKO po zmianie
+    `timeout_seconds` (jedyna wartość wypieczona w argumentach startowych
+    `swayidle`, patrz `screen_idle_runner.py`). `enabled` i
+    `restart_wayvnc_on_wake` ten skrypt czyta na żywo przy każdym zdarzeniu,
+    więc nie wymagają restartu w ogóle - patrz `confirm()` niżej.
+
+    Błąd (np. uruchomione na stacji deweloperskiej, bez tej usługi) nie ma być
+    fatalny - plik ustawień już jest zapisany, usługa i tak go przeczyta przy
+    swoim następnym (re)starcie."""
     try:
         result = subprocess.run(
             ['systemctl', '--user', 'restart', 'screen-idle.service'],
@@ -74,14 +79,22 @@ def settings_page() -> None:
         status = ui.label('').classes('text-xs text-grey-6')
 
         async def confirm() -> None:
-            save({
+            previous = current
+            new_settings = {
                 'enabled': enabled_switch.value,
                 'timeout_seconds': int(timeout_number.value or DEFAULTS['timeout_seconds']),
                 'restart_wayvnc_on_wake': wayvnc_switch.value,
-            })
-            ok, message = await run.io_bound(restart_screen_idle)
-            status.text = message
-            ui.notify(message, type='positive' if ok else 'warning')
+            }
+            save(new_settings)
+            if new_settings['timeout_seconds'] != previous['timeout_seconds']:
+                ok, message = await run.io_bound(restart_screen_idle)
+                status.text = message
+                ui.notify(message, type='positive' if ok else 'warning')
+            else:
+                # enabled/restart_wayvnc_on_wake screen_idle_runner.py czyta
+                # na żywo przy każdym zdarzeniu - bez restartu usługi.
+                status.text = 'Zapisano - działa od razu, bez restartu usługi.'
+                ui.notify(status.text, type='positive')
 
         ui.button('Zapisz', icon='save', on_click=confirm) \
             .props('color=primary').classes('w-full')

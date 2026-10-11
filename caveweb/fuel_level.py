@@ -9,6 +9,11 @@ dokłada swoją ilość do tego, co zostało. Między dwoma zdarzeniami (i od
 ostatniego do teraz) odejmujemy zużycie: sekundy pracy podajnika od
 `feeder_total_s` poprzedniego zdarzenia, podzielone przez współczynnik worka,
 który się wtedy akurat wypalał (patrz `refuels.coefficient_for`).
+
+Payload niesie też dobowe zużycie (`today_coal_kg`/`today_energy_kwh`), liczone
+z pola `today_s` licznika podajnika (ten sam współczynnik, reset o północy po
+stronie bramki) i orientacyjnej wartości opałowej węgla (`ENERGY_MJ_PER_KG`) -
+w kWh, bo to łatwiej porównać z resztą instalacji niż kg.
 """
 
 from __future__ import annotations
@@ -27,6 +32,11 @@ TANK_CAPACITY_KG = 200.0
 PUBLISH_INTERVAL_SECONDS = 3600.0
 FEEDER_COUNTERS_TOPIC = topics.relay_counters('co_feeder')
 
+# Węgiel ~27 MJ/kg (wartość orientacyjna, nie zależy od worka) - tyle
+# wystarczy, żeby dobowe zużycie pokazać w kWh zamiast samych kg.
+ENERGY_MJ_PER_KG = 27.0
+MJ_PER_KWH = 3.6
+
 
 def _burn(level: float | None, baseline_s: float | None, bag_size_kg: int | None,
          target_s: float | None) -> float | None:
@@ -40,6 +50,19 @@ def _burn(level: float | None, baseline_s: float | None, bag_size_kg: int | None
     if not coef:
         return level
     return max(0.0, level - elapsed / coef)
+
+
+def _daily_coal(bag_size_kg: int | None, today_s: float | None) -> tuple[float | None, float | None]:
+    """Węgiel spalony dzisiaj (kg, kWh) z `today_s` podajnika i współczynnika
+    worka, który akurat się pali - `None, None`, gdy brak któregoś wejścia."""
+    if today_s is None or bag_size_kg is None:
+        return None, None
+    coef = refuels.coefficient_for(bag_size_kg)
+    if not coef:
+        return None, None
+    kg = today_s / coef
+    kwh = kg * ENERGY_MJ_PER_KG / MJ_PER_KWH
+    return kg, kwh
 
 
 def estimate(current_total_s: float | None = None) -> dict | None:
@@ -69,6 +92,9 @@ def estimate(current_total_s: float | None = None) -> dict | None:
     if level is None:
         return None
 
+    today_s = mqttclient.cache.value(FEEDER_COUNTERS_TOPIC, 'today_s')
+    today_kg, today_kwh = _daily_coal(active_bag_size, today_s)
+
     last = records[-1]
     return {
         'value': round(100.0 * level / TANK_CAPACITY_KG, 1),  # % - pole "value" jak inne sensory
@@ -79,6 +105,8 @@ def estimate(current_total_s: float | None = None) -> dict | None:
         'last_refuel_filled_to_full': last.filled_to_full,
         'last_refuel_bag_size_kg': last.bag_size_kg,
         'coefficient_s_per_kg': refuels.coefficient_for(active_bag_size),
+        'today_coal_kg': None if today_kg is None else round(today_kg, 1),
+        'today_energy_kwh': None if today_kwh is None else round(today_kwh, 1),
     }
 
 

@@ -41,8 +41,10 @@ def home() -> None:
         tile('insert_chart', 'Wykresy', target='/charts',
              subtitle='temperatury, moc, energia')
         tile('local_fire_department', 'Kocioł CO', target='/boiler',
+             header_body=lambda: live.live_fuel_indicator(fuel_level.TOPIC),
              body=lambda: boiler.render_compact(
-                 extra=lambda: live.live_fuel_indicator(fuel_level.TOPIC)))
+                 extra=lambda: live.live_topic_field(
+                     fuel_level.TOPIC, 'today_energy_kwh', 'węgiel dziś', suffix='kWh')))
         tile('solar_power', 'PV', target='/pv',
              header_body=pv.render_header_value,
              body=lambda: pv.render_compact(skip=1))

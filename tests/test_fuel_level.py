@@ -20,9 +20,12 @@ tmp_dir = Path(tempfile.mkdtemp())
 FEEDER_TOPIC = topics.relay_counters('co_feeder')
 
 
-def set_current_total_s(value):
+def set_current_total_s(value, today_s=None):
     mqttclient.cache.clear()
-    mqttclient.cache.put(FEEDER_TOPIC, {'total_s': value}, when=1_800_000_000.0)
+    payload = {'total_s': value}
+    if today_s is not None:
+        payload['today_s'] = today_s
+    mqttclient.cache.put(FEEDER_TOPIC, payload, when=1_800_000_000.0)
 
 
 # --- brak dziennika -> nic do oszacowania ------------------------------------
@@ -44,6 +47,16 @@ check("payload niesie dane ostatniego tankowania",
       and payload['last_refuel_total_s'] == 1000.0)
 check("współczynnik w payloadzie to wartość startowa (brak jeszcze pomiaru)",
       abs(payload['coefficient_s_per_kg'] - 308.0) < 0.01)
+check("brak today_s -> brak dobowego zużycia w payloadzie",
+      payload['today_coal_kg'] is None and payload['today_energy_kwh'] is None)
+
+# --- dobowe zużycie (today_s) liczone wg aktualnego współczynnika worka ------
+
+set_current_total_s(1000.0 + 15400.0, today_s=3080.0)  # 3080s / 308 s/kg = 10 kg dzisiaj
+payload = fuel_level.estimate()
+check("today_coal_kg liczony z today_s i współczynnika", abs(payload['today_coal_kg'] - 10.0) < 0.1)
+check("today_energy_kwh = kg * 27 MJ/kg / 3.6 MJ/kWh",
+      abs(payload['today_energy_kwh'] - (10.0 * 27.0 / 3.6)) < 0.1)
 
 # --- druga para "do pełna" nadpisuje współczynnik zmierzoną wartością --------
 

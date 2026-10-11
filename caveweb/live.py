@@ -286,6 +286,24 @@ def live_fuel_indicator(topic: str, interval: float = 30.0):
     return container
 
 
+def live_topic_field(topic: str, field: str, label: str, suffix: str = '',
+                     digits: int = 1, interval: float = 30.0):
+    """Kolumna wartość+podpis w stylu `render_compact`, ale czytana wprost z
+    jednego pola payloadu JSON na danym topicu (retained) zamiast z
+    `LivePanel` - np. dobowe zużycie węgla, publikowane razem z poziomem
+    zbiornika w `fuel_level.py`, a nie jako osobny sensor."""
+    with ui.column().classes('gap-0 items-center').style('min-width: 3.5rem'):
+        value_label = ui.label('–').classes('text-lg font-medium leading-tight')
+        ui.label(label).classes('text-xs text-grey-6 leading-tight')
+
+    def refresh() -> None:
+        value = mqttclient.cache.value(topic, field)
+        value_label.text = '–' if value is None else f'{float(value):.{digits}f} {suffix}'.strip()
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(interval, refresh)
+
+
 def mqtt_status_label(interval: float = 5.0):
     """Stopka ze stanem połączenia z brokerem - widać, czy dane są na żywo."""
     label = ui.label(mqttclient.status_text()).classes('text-xs text-grey-7 px-3 pb-2')

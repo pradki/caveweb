@@ -31,7 +31,7 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | Tiles: **Wykresy**, **Kocioł CO** (furnace temperature on the tile), **PV** (PV power, battery SOC, load), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/home` | Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime; the key setpoints |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Saving is not wired yet** (see below) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
@@ -57,7 +57,7 @@ declares which field it wants:
 | `cave/heating/setpoints/<name>` | `value` | `{"value": 62}` |
 | `cave/relay/<module>/<alias>/status` | `state` | `{"state": true}` |
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
-| `cave/heating/fuel_level` | `value` | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
+| `cave/heating/fuel_level` | `value`, `today_energy_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -134,7 +134,8 @@ itself, not a command that controls anything. Once an hour (`publish_loop()`, st
   "value": 75.0, "kg": 150.0, "tank_capacity_kg": 200.0,
   "last_refuel_timestamp": "2026-10-10T18:00:00",
   "last_refuel_total_s": 1000.0, "last_refuel_filled_to_full": true,
-  "last_refuel_bag_size_kg": 25, "coefficient_s_per_kg": 308.0
+  "last_refuel_bag_size_kg": 25, "coefficient_s_per_kg": 308.0,
+  "today_coal_kg": 10.0, "today_energy_kwh": 75.0
 }
 ```
 
@@ -147,8 +148,17 @@ pair of rows, and from the last row to now, the elapsed `total_s` is converted t
 percentage (what `fuel_indicator()` in `widgets.py` expects); the rest of the fields are there so
 anything subscribing can see *why* the number is what it is, not just the number.
 
-Not wired into the UI yet: `fuel_indicator()` on the Kocioł CO tile still needs a subscriber for
-this topic - it's being published, just not displayed there yet.
+`today_coal_kg`/`today_energy_kwh` are the same estimate applied to just today: the feeder's own
+`today_s` (from `cave/relay/relay_heating/co_feeder/counters`, reset at the gateway's midnight)
+divided by the currently-active bag's coefficient, times a flat 27 MJ/kg (`ENERGY_MJ_PER_KG`) to
+get kWh - coal composition varies enough that this is a rough figure, not a calibrated one, but
+kWh is easier to compare against the rest of the installation than kg. Both are `null` until a
+refuel has been logged (no bag size to pick a coefficient from yet).
+
+Wired into the Kocioł CO tile on `/home`: `fuel_indicator()` sits next to the tile's title (same
+spot `moc PV` has on the PV tile), and `today_energy_kwh` sits alongside the furnace temperature
+in the tile body (`live.live_topic_field()` - a column read straight from one field of this
+topic's payload, for values that aren't a `LivePanel` sensor).
 
 ## Charts
 
@@ -361,12 +371,18 @@ retired.
 
 Configurable from **`/settings`** on the dashboard itself (on/off, timeout in seconds, whether
 to restart `wayvnc` on wake - not always needed, and a wasted restart if it isn't) rather than
-by editing the unit. `screen_idle_runner.py` is a thin wrapper: it reads the same small JSON
-file the settings page writes (`config.SCREEN_IDLE_SETTINGS_PATH`, default
-`/home/sqna/cave/logs/screen_idle.json`) and `exec`s `swayidle` with whatever it finds - or, if
-disabled, just waits (`signal.pause()`) so the unit stays "active" without doing anything. Saving
-on `/settings` writes the file and runs `systemctl --user restart screen-idle.service` itself, so
-a changed timeout takes effect immediately, not on the next reboot.
+by editing the unit. `screen_idle_runner.py` is a thin wrapper: `swayidle` itself always runs,
+with `timeout` fixed at whatever the settings said when the process last started - the one value
+genuinely baked into its startup arguments. The on-idle and on-resume commands it hands to
+`swayidle`, though, call back into this same script (`--off`/`--resume`), which re-reads the
+settings file **live, on every single event**: `enabled` gates whether `--off` actually blanks
+the screen, and `restart_wayvnc_on_wake` gates the wayvnc restart on `--resume` - `--resume`
+itself always turns the screen back on regardless of `enabled`, so a stray touch never leaves you
+stuck looking at a blank screen. Net effect: toggling either of those two switches on `/settings`
+takes effect on the very next idle/resume event, with no restart at all. Only a changed
+`timeout_seconds` still needs `systemctl --user restart screen-idle.service` (which `/settings`
+runs for you, only when that value actually changed) since it can't be picked up without
+restarting `swayidle`'s own process.
 
 **`kiosk-watchdog.service`** (`kiosk_watchdog.py`) - a once-per-boot recovery check for a
 specific failure seen after a Pi reset: the kiosk came up with the screen blanked and touch

@@ -15,6 +15,12 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+# Bez tego "systemctl --user restart screen-idle.service" (po zmianie
+# timeout_seconds w /settings) kończy się "$DBUS_SESSION_BUS_ADDRESS and
+# $XDG_RUNTIME_DIR not defined" - ta usługa jest systemową (multi-user.target),
+# nie dziedziczy więc środowiska sesji graficznej sqna, w której żyje jego
+# systemd --user. Ten sam UID co w screen-idle.service.
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 StandardOutput=journal
 StandardError=journal
 
