@@ -81,7 +81,10 @@ def temperatures() -> None:
 
 class TemperaturesChartPage(ChartPage):
     title = 'Temperatury'
-    back = '/temperatures'
+    # Dziedziczy ChartPage.back = True (historia przeglądarki) - stały URL
+    # tutaj wyglądał na poprawny (i tak zawsze wraca na /temperatures), ale
+    # to DOPYCHANIE nowego wpisu historii, nie cofanie: po nim kolejne "wstecz"
+    # z /temperatures trafiało z powrotem na ten wykres, nie na /boiler.
     key = 'temperatures'
     y_axes = [{'name': '°C'}]
 
