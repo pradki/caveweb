@@ -52,7 +52,7 @@ TODAY = [
 
 @ui.page('/pv')
 def pv() -> None:
-    page_header('PV', back='/home')
+    page_header('PV', back=True)
 
     panels = []
     with ui.column().classes('w-full p-3 gap-2'):

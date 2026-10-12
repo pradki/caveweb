@@ -28,7 +28,7 @@ def _state_color(state) -> str:
 
 @ui.page('/relays')
 def relays_page() -> None:
-    page_header('Przekaźniki', back='/home')
+    page_header('Przekaźniki', back=True)
 
     with ui.column().classes('w-full p-3 gap-3'):
         modules = relay_control.discover_modules()

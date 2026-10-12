@@ -38,9 +38,11 @@ FURNACE = [
     param('return_fireplace_temp_sensor', 'Powrót kominka', icon='fireplace'),
 ]
 
-# Gdzie to ciepło trafia
+# Gdzie to ciepło trafia - bufor ma 4 czujniki po wysokości, nie tylko góra/dół
 HOUSE = [
     live.value_of('Bufor góra', topics.sensor('buff_top_temp'), unit='°C', icon='vertical_align_top'),
+    live.value_of('Bufor śr. góra', topics.sensor('buff_upmid_temp'), unit='°C', icon='expand_less'),
+    live.value_of('Bufor śr. dół', topics.sensor('buff_lowmid_temp'), unit='°C', icon='expand_more'),
     live.value_of('Bufor dół', topics.sensor('buff_bot_temp'), unit='°C', icon='vertical_align_bottom'),
     live.value_of('Wewnątrz', topics.sensor('inside_temp'), unit='°C', icon='home'),
     live.value_of('Zewnątrz', topics.sensor('outside_temp'), unit='°C', icon='thermostat'),
@@ -87,14 +89,44 @@ KEY_SETPOINTS = [
 
 
 def furnace_boost_controls() -> None:
-    """Przycisk "Wypalanie" (+10°C na 10 minut, patrz furnace_boost.py) i jego
-    stan - zamienia się w "Anuluj", gdy wypalanie trwa, z odliczaniem."""
+    """Przycisk "Wypalanie" otwiera potwierdzenie (ile stopni, ile minut -
+    patrz furnace_boost.py) zamiast działać od razu - łatwo go kliknąć przez
+    przypadek, a to prawdziwa komenda na piec i pompę, nie tylko podgląd.
+    Po starcie zamienia się w "Anuluj", z odliczaniem."""
     with ui.row().classes('w-full items-center gap-2'):
         start_btn = ui.button('Wypalanie', icon='whatshot',
-                              on_click=lambda: do_start()).props('outline color=orange')
+                              on_click=lambda: open_confirm()).props('outline color=orange')
         cancel_btn = ui.button('Anuluj wypalanie', icon='close',
                                on_click=lambda: do_cancel()).props('outline color=negative')
         status = ui.label('').classes('text-xs text-grey-6')
+
+    with ui.dialog() as confirm_dialog, ui.card().classes('gap-2 min-w-80'):
+        ui.label('Wypalanie pieca').classes('text-base font-medium')
+        ui.label('Czasowo podnosi nastawę pieca i włącza pompę - potwierdź, '
+                 'żeby uniknąć przypadkowego kliknięcia.').classes('text-xs text-grey-6')
+        delta_input = ui.number('O ile stopni podnieść (°C)',
+                                value=furnace_boost.BOOST_DELTA_C,
+                                min=1, max=20, step=1, format='%.0f').classes('w-full')
+        duration_input = ui.number('Czas trwania (minuty)',
+                                   value=furnace_boost.BOOST_DURATION_SECONDS / 60,
+                                   min=1, max=60, step=1, format='%.0f').classes('w-full')
+
+        def do_start() -> None:
+            delta = float(delta_input.value or furnace_boost.BOOST_DELTA_C)
+            minutes = float(duration_input.value or furnace_boost.BOOST_DURATION_SECONDS / 60)
+            ok, message = furnace_boost.start_boost(delta=delta, duration=minutes * 60)
+            ui.notify(message, type='positive' if ok else 'warning')
+            confirm_dialog.close()
+            refresh()
+
+        with ui.row().classes('w-full justify-end gap-2'):
+            ui.button('Anuluj', on_click=confirm_dialog.close).props('flat')
+            ui.button('Wypalaj', icon='whatshot', on_click=do_start).props('color=orange')
+
+    def open_confirm() -> None:
+        delta_input.value = furnace_boost.BOOST_DELTA_C
+        duration_input.value = furnace_boost.BOOST_DURATION_SECONDS / 60
+        confirm_dialog.open()
 
     def refresh() -> None:
         state = furnace_boost.load_state()
@@ -108,11 +140,6 @@ def furnace_boost_controls() -> None:
         status.text = (f'Aktywne: {state["boosted_value"]:.0f}°C, '
                       f'jeszcze {remaining // 60}:{remaining % 60:02d}')
 
-    def do_start() -> None:
-        ok, message = furnace_boost.start_boost()
-        ui.notify(message, type='positive' if ok else 'warning')
-        refresh()
-
     def do_cancel() -> None:
         ok, message = furnace_boost.cancel_boost()
         ui.notify(message, type='positive' if ok else 'warning')
@@ -124,7 +151,7 @@ def furnace_boost_controls() -> None:
 
 @ui.page('/boiler')
 def boiler() -> None:
-    page_header('Kocioł CO', back='/home')
+    page_header('Kocioł CO', back=True)
 
     panels = []
     with ui.column().classes('w-full p-3 gap-2'):
@@ -134,7 +161,7 @@ def boiler() -> None:
             ui.button('Tankowanie', icon='local_shipping',
                       on_click=lambda: ui.navigate.to('/boiler/refuel')).props('outline')
             ui.button('Wykres temperatur', icon='show_chart',
-                      on_click=lambda: ui.navigate.to('/charts/temperature')).props('flat')
+                      on_click=lambda: ui.navigate.to('/temperatures')).props('flat')
 
         furnace_boost_controls()
 

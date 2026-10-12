@@ -32,7 +32,7 @@ Two data sources, each for what it is good at:
 | Route | What is on it |
 |-------|---------------|
 | `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
-| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; buffer top/bottom, inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost) |
+| `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; all 4 buffer sensors (top, upper-middle, lower-middle, bottom), inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button (confirmation dialog, configurable °C/minutes) — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost); **Wykres temperatur** goes to `/temperatures`, not a `/charts/*` page, since that's where the actual chart and sensor picker live |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Zapisz** publishes the whole form — see [Writing setpoints](#writing-setpoints) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
@@ -200,11 +200,15 @@ home tile too.
 
 `/boiler`'s **Wypalanie** button (`caveweb/furnace_boost.py`) is a second, narrower way this app
 writes `furnace_temp_setpoint`, distinct from the general publishing in "Writing setpoints" above:
-it raises the setpoint by 10°C for ten minutes, to run the furnace hot enough to burn off buildup,
-then puts the original value back *by itself*, without anyone clicking Zapisz again. That
-self-reverting behaviour is the whole point of a separate mechanism here rather than just using
-the config page for this too:
+it raises the setpoint (by how much, and for how long, is confirmed in a dialog each time - see
+below) to run the furnace hot enough to burn off buildup, then puts the original value back *by
+itself*, without anyone clicking Zapisz again. That self-reverting behaviour is the whole point of
+a separate mechanism here rather than just using the config page for this too:
 
+- Clicking **Wypalanie** opens a confirmation dialog instead of acting immediately - easy to tap
+  by accident on a touchscreen, and this is a real command to the furnace and pump, not a view.
+  The dialog has two fields, prefilled from `BOOST_DELTA_C`/`BOOST_DURATION_SECONDS` (10°C, 10
+  minutes) but editable per use: how many degrees to raise, and for how many minutes.
 - The boosted value is clamped to the setpoint's configured `max` (72°C). This isn't cosmetic:
   `heating-controller`'s `shadow_vault.check_and_correct()` doesn't clamp an out-of-range value, it
   resets the parameter to its *default* (60°C) - publishing an un-clamped "+10" past the max would
@@ -233,11 +237,25 @@ furnace is being pushed hottest. So `start_boost()` also fires its own `flash_on
 sends, including this channel's. `waveshare-mqtt-gateway`'s `leases.ChannelTable.resolve()` always
 picks the highest-priority *unexpired* lease across every service with a claim on a channel, so
 this claim wins outright for its whole duration, regardless of whether `heating-controller`'s own
-threshold has fired yet. It needs no explicit "off" or revert: a `flash_on` lease is a hardware
-pulse that expires on its own, same failure-safe shape as every other relay command in this
-project. After it expires, `heating-controller`'s own reactive logic is expected to pick the pump
-back up anyway, since the furnace is normally still hot enough to exceed the (by-then-reverted,
-lower) setpoint by more than its margin.
+threshold has fired yet. Normally it needs no explicit "off" or revert: a `flash_on` lease is a
+hardware pulse that expires on its own, same failure-safe shape as every other relay command in
+this project, and after it expires `heating-controller`'s own reactive logic is expected to pick
+the pump back up anyway, since the furnace is normally still hot enough to exceed the
+(by-then-reverted, lower) setpoint by more than its margin.
+
+**Anulowanie (cancel) also tries to stop the pump early**, not just revert the setpoint - this
+gap was found the first time someone actually clicked Anuluj mid-boost and the pump kept running
+for its full 10 minutes regardless. A plain `off` command doesn't work here: the gateway module
+ignores `off` while a `flash_on` pulse it already started is still counting down (measured
+directly on the hardware, see `cwu-controller`/`heating-controller`'s `relay_client.py`). Instead,
+`cancel_boost()` sends a **new** `flash_on` on the same channel, from the same service
+(`caveweb`), for a short `PUMP_CANCEL_DURATION` (2s) - the same register write that started the
+pulse, asked to re-arm to a much shorter one, rather than a different command the module is known
+to disregard mid-pulse. This is **unverified on the real module** (the two hardware facts it
+leans on - "off is ignored mid-pulse" and "a fresh flash_on write re-arms the timer instead of
+being ignored the same way" - were never actually tested together) - hence the deliberately
+hedged wording in the UI ("pompa powinna się niedługo zatrzymać", not "zatrzymana"). Worth
+confirming against the real relay the next time a boost is cancelled mid-flight.
 
 ### Relays: manual channel control
 
@@ -347,7 +365,8 @@ caveweb/
     topics.py            MQTT topic conventions in one place
     heating_params.py    copy of PARAMS_HEATING metadata (topic, type, range)
     chartpage.py         shared chart page: ranges, min/max, grouping, refresh
-    widgets.py           header, tiles, section headers
+    widgets.py           header (back = browser history, not a fixed URL - one
+                         chart page is opened from several places), tiles, section headers
     pages/
         home.py          "/home"                 tiles with live values
         boiler.py        "/boiler"               CO boiler readouts
@@ -550,8 +569,9 @@ screen-idle settings round-trip, defaults on a missing or partial file, and that
 falls back instead of raising. `test_feeder_log.py` covers the refuel-comment format and that it
 appends without disturbing existing content. `test_furnace_boost.py` covers the boost/cancel/expiry
 state machine: refusing to start without a live setpoint, refusing a second concurrent boost,
-clamping to the setpoint's configured max, the pump getting its own higher-priority `flash_on` on
-the same start, and `check_expired()` reverting correctly both within a running session and on the
+clamping to the setpoint's configured max, a custom delta/duration overriding the defaults, the
+pump getting its own higher-priority `flash_on` on the same start and a short re-armed one on
+cancel, and `check_expired()` reverting correctly both within a running session and on the
 first check after a simulated restart. `test_relay_control.py` covers discovery purely from cache
 contents (module list from bitmask topics only, channel-number-to-name mapping from per-channel
 topics, a channel that's never published anything showing as `ch<N>` with blank fields instead of

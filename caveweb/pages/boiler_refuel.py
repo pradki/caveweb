@@ -26,7 +26,7 @@ def format_hours(seconds: float) -> str:
 
 @ui.page('/boiler/refuel')
 def refuel() -> None:
-    page_header('Tankowanie', back='/boiler')
+    page_header('Tankowanie', back=True)
 
     last_bag_size = app.storage.user.get(STORAGE_BAG_SIZE_KEY, 25)
 

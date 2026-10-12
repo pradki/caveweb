@@ -15,15 +15,30 @@ TILE_CLASSES = (
 )
 
 
-def page_header(title: str, back: str | None = None, right: Callable | None = None) -> None:
-    """Górny pasek z opcjonalnym przyciskiem powrotu i czymś dodatkowym z
-    prawej strony (np. zegarem na /home - patrz `live.clock_label`)."""
+def page_header(title: str, back: str | bool | None = None,
+                right: Callable | None = None) -> None:
+    """Górny pasek z opcjonalnym przyciskiem powrotu, przyciskiem home i
+    czymś dodatkowym z prawej strony (np. zegarem na /home - patrz
+    `live.clock_label`).
+
+    `back=True` cofa przez historię przeglądarki (`ui.navigate.back()`) -
+    tego chcemy prawie zawsze, bo jedna strona bywa otwierana z kilku miejsc
+    (np. każdy wykres z `/charts`, `/pv` i `/boiler` naraz) i stały cel typu
+    `back='/charts'` wracał tam nawet, gdy ktoś przyszedł skądinąd. Goły URL
+    (`back='/inne'`) wciąż działa, gdyby kiedyś naprawdę trzeba było wymusić
+    konkretny cel zamiast "tam, skąd przyszedłem".
+
+    Przycisk home (ikona `home`) pokazuje się zawsze, gdy `back` jest podane -
+    czyli na każdej stronie poza samym `/home`, które go nie przekazuje."""
     with ui.header().classes('bg-blue-900 text-white items-center justify-between'):
-        with ui.row().classes('items-center gap-2'):
+        with ui.row().classes('items-center gap-1'):
             if back is not None:
-                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back)) \
+                go_back = ui.navigate.back if back is True else (lambda: ui.navigate.to(back))
+                ui.button(icon='arrow_back', on_click=go_back) \
                     .props('flat round color=white dense')
-            ui.label(title).classes('text-lg font-medium')
+                ui.button(icon='home', on_click=lambda: ui.navigate.to('/home')) \
+                    .props('flat round color=white dense')
+            ui.label(title).classes('text-lg font-medium q-ml-xs')
         if right is not None:
             right()
 

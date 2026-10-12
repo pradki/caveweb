@@ -57,7 +57,7 @@ class ChartPage:
     """Strona z jednym wykresem i przełącznikami zakresu."""
 
     title = 'Wykres'
-    back = '/charts'
+    back = True
     key = 'chart'                       # prefiks kluczy w app.storage.user
     signals: list = []
     groups: list = []

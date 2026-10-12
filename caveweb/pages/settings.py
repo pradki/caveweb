@@ -56,7 +56,7 @@ def restart_screen_idle() -> tuple[bool, str]:
 
 @ui.page('/settings')
 def settings_page() -> None:
-    page_header('Konfiguracja', back='/home')
+    page_header('Konfiguracja', back=True)
 
     current = load()
 

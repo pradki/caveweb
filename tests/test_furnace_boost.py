@@ -84,7 +84,7 @@ ok, message = furnace_boost.start_boost(now=now)
 check("ograniczone do maksimum (72), nie 75", fake.calls[0][1] == {'value': 72})
 check("komunikat wspomina ograniczenie", 'ograniczone' in message)
 
-# --- anulowanie ręczne: wraca do oryginalnej wartości, czyści stan -----------
+# --- anulowanie ręczne: wraca do oryginalnej wartości, próbuje zatrzymać pompę
 
 fake = reset()
 mqttclient.cache.put(furnace_boost.TOPIC, {'value': 60}, when=1_800_000_000.0)
@@ -92,8 +92,27 @@ furnace_boost.start_boost(now=now)
 fake.calls.clear()
 ok, message = furnace_boost.cancel_boost()
 check("anulowanie zwraca sukces", ok is True)
-check("publikuje powrót do oryginalnej wartości", fake.calls[-1][1] == {'value': 60})
+check("publikuje powrót do oryginalnej wartości nastawy", fake.calls[0][1] == {'value': 60})
+check("i osobno, krótki flash_on na pompę - próba wcześniejszego zatrzymania",
+      fake.calls[1][0] == furnace_boost.PUMP_TOPIC
+      and fake.calls[1][1] == {'cmd': 'flash_on', 'duration': furnace_boost.PUMP_CANCEL_DURATION,
+                               'priority': furnace_boost.PUMP_PRIORITY})
+check("komunikat ostrożny - 'powinna', nie gwarancja", 'powinna' in message)
 check("stan wyczyszczony", furnace_boost.load_state() is None)
+
+# --- delta/duration konfigurowalne (domyślne tylko gdy nie podano) -----------
+
+fake = reset()
+mqttclient.cache.put(furnace_boost.TOPIC, {'value': 60}, when=1_800_000_000.0)
+ok, message = furnace_boost.start_boost(delta=5, duration=120.0, now=now)
+check("własna delta zamiast domyślnej (+5, nie +10)", fake.calls[0][1] == {'value': 65})
+state = furnace_boost.load_state()
+check("własny czas trwania w stanie (2 min, nie 10)",
+      datetime.fromisoformat(state['expires_at']) == now + timedelta(minutes=2))
+check("pompa dostaje ten sam własny czas trwania",
+      fake.calls[1][1]['duration'] == 120.0)
+check("komunikat podaje właściwą liczbę minut", '2 min' in message)
+furnace_boost.cancel_boost()  # porządek przed kolejnym testem - zakłada brak aktywnego stanu
 
 # --- anulowanie bez aktywnego wypalania -> odmowa ----------------------------
 

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Chwilowe "wypalanie": +10°C na nastawie pieca na 10 minut, potem sam
-powrót do poprzedniej wartości - patrz `/boiler` ("Wypalanie"/"Anuluj").
-Razem z nastawą, od razu na start, kopie też pompę pieca na tyle samo czasu -
-patrz `_pump_on()` niżej po to, dlaczego to osobna, natychmiastowa komenda, a
-nie poleganie na heating-controller.
+"""Chwilowe "wypalanie": podniesienie nastawy pieca (domyślnie +10°C na 10
+minut, oba konfigurowalne z `/boiler` przy potwierdzeniu), potem sam powrót
+do poprzedniej wartości - patrz `/boiler` ("Wypalanie"/"Anuluj"). Razem z
+nastawą, od razu na start, kopie też pompę pieca na tyle samo czasu - patrz
+`_pump_on()` niżej po to, dlaczego to osobna, natychmiastowa komenda, a nie
+poleganie na heating-controller. Ręczne anulowanie próbuje też wcześniej
+zatrzymać pompę - patrz `_pump_cancel()`.
 
 Jedyna prawdziwa komenda sterująca, jaką ta aplikacja publikuje (reszta to
 tylko wyliczony status, patrz `fuel_level.py` i README "Writing data") -
@@ -52,6 +54,15 @@ PUMP_SERVICE_NAME = 'caveweb'
 PUMP_PRIORITY = 20
 PUMP_TOPIC = topics.relay_cmd(PUMP_ALIAS, PUMP_SERVICE_NAME)
 
+# Anulowanie wypalania cofa nastawę od razu, ale nie może tak samo przerwać
+# pompy: `off` podczas trwającego flash_on jest przez moduł ignorowane (patrz
+# relay_client.py w cwu-controller/heating-controller - zmierzone na sprzęcie).
+# Zamiast "off" wysyłamy NOWY flash_on, tym samym serwisem, na krótki czas -
+# ten sam mechanizm, który włączył pompę (ponowny zapis do rejestru impulsu),
+# powinien też skrócić jej już trwający impuls, bo to nie jest zwykłe "off".
+# Nieprzetestowane jeszcze na żywym module - do potwierdzenia.
+PUMP_CANCEL_DURATION = 2.0
+
 
 def _path():
     return config.FURNACE_BOOST_PATH
@@ -99,22 +110,32 @@ def _pump_on(duration: float) -> None:
         LOG.info('Wypalanie: pompa pieca włączona na %.0fs (priorytet %d)', duration, PUMP_PRIORITY)
 
 
-def start_boost(now: datetime | None = None) -> tuple[bool, str]:
-    """Podnosi nastawę pieca o BOOST_DELTA_C na BOOST_DURATION_SECONDS.
-    Odmawia, gdy wypalanie już trwa (żeby kliknięcie drugi raz nie dołożyło
-    kolejnych +10 do już podniesionej wartości) albo gdy nie znamy jeszcze
-    bieżącej nastawy z brokera (nie ma do czego potem wrócić)."""
+def _pump_cancel() -> None:
+    """Próba wcześniejszego zakończenia pracy pompy - patrz PUMP_CANCEL_DURATION."""
+    _pump_on(PUMP_CANCEL_DURATION)
+
+
+def start_boost(delta: float | None = None, duration: float | None = None,
+               now: datetime | None = None) -> tuple[bool, str]:
+    """Podnosi nastawę pieca o `delta` (domyślnie BOOST_DELTA_C) na `duration`
+    sekund (domyślnie BOOST_DURATION_SECONDS). Odmawia, gdy wypalanie już
+    trwa (żeby kliknięcie drugi raz nie dołożyło kolejnych +10 do już
+    podniesionej wartości) albo gdy nie znamy jeszcze bieżącej nastawy z
+    brokera (nie ma do czego potem wrócić)."""
     if load_state() is not None:
         return False, 'Wypalanie już aktywne.'
+
+    delta = BOOST_DELTA_C if delta is None else delta
+    duration = BOOST_DURATION_SECONDS if duration is None else duration
 
     current = mqttclient.cache.value(TOPIC)
     if current is None:
         return False, 'Brak aktualnej nastawy pieca z brokera - spróbuj ponownie za chwilę.'
 
     meta = heating_params.PARAMS[SETPOINT_NAME]
-    boosted = min(current + BOOST_DELTA_C, meta['max'])
+    boosted = min(current + delta, meta['max'])
     now = now or datetime.now()
-    expires_at = now + timedelta(seconds=BOOST_DURATION_SECONDS)
+    expires_at = now + timedelta(seconds=duration)
 
     _save_state({
         'original_value': current,
@@ -122,23 +143,27 @@ def start_boost(now: datetime | None = None) -> tuple[bool, str]:
         'expires_at': expires_at.isoformat(),
     })
     _publish(boosted)
-    _pump_on(BOOST_DURATION_SECONDS)
+    _pump_on(duration)
 
-    minutes = int(BOOST_DURATION_SECONDS // 60)
-    note = '' if boosted == current + BOOST_DELTA_C else f' (ograniczone do maks. {meta["max"]}°C)'
-    LOG.info('Wypalanie: %s°C -> %s°C na %d min%s', current, boosted, minutes, note)
-    return True, f'Wypalanie: {boosted:.0f}°C przez {minutes} min{note}, pompa włączona'
+    minutes = duration / 60
+    note = '' if boosted == current + delta else f' (ograniczone do maks. {meta["max"]}°C)'
+    LOG.info('Wypalanie: %s°C -> %s°C na %.0f min%s', current, boosted, minutes, note)
+    return True, f'Wypalanie: {boosted:.0f}°C przez {minutes:.0f} min{note}, pompa włączona'
 
 
 def cancel_boost() -> tuple[bool, str]:
-    """Natychmiastowy, ręczny powrót do poprzedniej nastawy."""
+    """Natychmiastowy, ręczny powrót do poprzedniej nastawy - i próba
+    wcześniejszego zatrzymania pompy, patrz PUMP_CANCEL_DURATION (nie
+    gwarantowane, stąd ostrożne sformułowanie w komunikacie)."""
     state = load_state()
     if state is None:
         return False, 'Wypalanie nie jest aktywne.'
     _publish(state['original_value'])
+    _pump_cancel()
     _clear_state()
     LOG.info('Wypalanie anulowane ręcznie - powrót do %s°C', state['original_value'])
-    return True, f'Anulowano - powrót do {state["original_value"]:.0f}°C'
+    return True, (f'Anulowano - powrót do {state["original_value"]:.0f}°C, '
+                  f'pompa powinna się niedługo zatrzymać')
 
 
 def check_expired(now: datetime | None = None) -> bool:

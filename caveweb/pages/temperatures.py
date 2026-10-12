@@ -39,7 +39,7 @@ STORAGE_KEY = 'temperatures_selected'
 
 @ui.page('/temperatures')
 def temperatures() -> None:
-    page_header('Temperatury', back='/home')
+    page_header('Temperatury', back=True)
 
     selected = set(app.storage.user.get(STORAGE_KEY, []))
 

@@ -59,7 +59,7 @@ class BoilerConfigPage:
         self.inputs = {}
 
     def build(self) -> None:
-        page_header('Kocioł CO – konfiguracja', back='/boiler')
+        page_header('Kocioł CO – konfiguracja', back=True)
 
         with ui.column().classes('w-full p-3 gap-2'):
             with ui.row().classes('w-full items-center gap-2'):

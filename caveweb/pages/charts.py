@@ -11,7 +11,7 @@ from ..widgets import page_header, tile, tile_grid
 
 @ui.page('/charts')
 def charts() -> None:
-    page_header('Wykresy', back='/home')
+    page_header('Wykresy', back=True)
     with tile_grid():
         tile('thermostat', 'Temperatury', target='/charts/temperature',
              subtitle='wewnątrz / zewnątrz')
