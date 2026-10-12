@@ -19,6 +19,15 @@ TEMPERATURES_TILE = [
     live.value_of('wewnątrz', topics.sensor('inside_temp'), unit='°C', digits=1),
 ]
 
+COMFORT_TILE = [
+    live.Value('temperatura', (topics.COMFORT_TOPIC,), key='temp_current',
+              unit='°C', digits=1, columns=()),
+    live.Value('wilgotność', (topics.COMFORT_TOPIC,), key='humidity',
+              unit='%', digits=0, columns=()),
+    live.Value('CO2', (topics.COMFORT_TOPIC,), key='co2',
+              unit='ppm', digits=0, columns=()),
+]
+
 PV_TILE = [
     live.sum_of('moc PV', [topics.deye('pv1_power'), topics.deye('pv2_power')],
                 unit='W', digits=0),
@@ -36,6 +45,7 @@ def home() -> None:
     boiler = live.LivePanel(BOILER_TILE)
     pv = live.LivePanel(PV_TILE)
     temperatures = live.LivePanel(TEMPERATURES_TILE)
+    comfort = live.LivePanel(COMFORT_TILE)
 
     def boiler_body() -> None:
         # Jeden wiersz, nie `render_compact` (dwie kolumny z podpisami pod
@@ -63,6 +73,8 @@ def home() -> None:
              body=lambda: pv.render_compact(skip=1))
         tile('thermostat', 'Temperatury', target='/temperatures',
              body=temperatures.render_compact)
+        tile('spa', 'Panel komfortu', target='/comfort',
+             body=comfort.render_compact)
         tile('power', 'Przekaźniki', target='/relays')
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
@@ -74,4 +86,5 @@ def home() -> None:
     boiler.start()
     pv.start()
     temperatures.start()
+    comfort.start()
     live.mqtt_status_label()

@@ -31,13 +31,14 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Panel komfortu** (temperature/humidity/CO2 on the tile), **Przekaźniki**, **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; all 4 buffer sensors (top, upper-middle, lower-middle, bottom), inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button (confirmation dialog, configurable °C/minutes) — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost); **Wykres temperatur** goes to `/temperatures`, not a `/charts/*` page, since that's where the actual chart and sensor picker live |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Zapisz** publishes the whole form — see [Writing setpoints](#writing-setpoints) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it and at what priority, and an **Akcja** button to force on/off/flash_on — see [Relays](#relays-manual-channel-control) |
+| `/comfort` | Temperature, humidity, air quality and a simplified day/night schedule, in three sections (Komfort, Harmonogram, Powietrze) — read-only, from a single `cave/comfort` topic a future dedicated service will own — see [Comfort](#comfort-presentation-only-pending-a-real-service) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
 
@@ -61,6 +62,7 @@ declares which field it wants:
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
 | `cave/relay/<module>/<name>/cmd/caveweb` | — | **published** by this app: `co_pump_boiler` automatically alongside the Wypalanie boost (`{"cmd": "flash_on", "duration": 600, "priority": 20}`, see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost)), or any channel manually from `/relays`'s **Akcja** button |
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
+| `cave/comfort` | `temp_current`, `humidity`, `co2`, `hvac_state`, `schedule_mode`, ... | one JSON with everything `/comfort` shows — see [Comfort](#comfort-presentation-only-pending-a-real-service) |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -293,6 +295,40 @@ doesn't quietly outlive the person who set it. The command goes out as
 shape every other service's commands use - the gateway can't tell a manual click here from an
 automated decision elsewhere.
 
+### Comfort: presentation only, pending a real service
+
+`/comfort` (`caveweb/pages/comfort.py`) shows temperature, humidity, air quality and a
+simplified schedule indicator, all read from one retained topic, `cave/comfort`
+(`topics.COMFORT_TOPIC`). Unlike every other write path in this app, nothing here
+publishes anything - the actual sensing/control logic (per-zone setpoints, heat/cool/auto,
+ventilation control, a real day/night/away/vacation schedule with overrides) is meant to be
+a separate, dedicated service that does not exist yet. caveweb only ever reads this topic
+and renders whatever JSON is on it, the same "–" for a missing field as everywhere else in
+the app - once that service starts publishing, the page needs no changes.
+
+Until then, `scripts/comfort_stub.py` publishes a plausible, slowly drifting random payload
+to `cave/comfort` (retained) so the page has something to show - a manual dev tool, not a
+systemd service, and not imported by the `caveweb` package at all:
+
+```bash
+python scripts/comfort_stub.py --host 127.0.0.1
+```
+
+Three sections, one `LivePanel` each:
+
+- **Komfort** — current/target temperature, mode (heating only in this first stage),
+  heating/idle state, zone (one zone for now).
+- **Harmonogram** — day/night mode and workday/weekend profile only, per the user's own
+  expectation that this is "in practice probably just day/night" until the real service
+  exists; no editable wake/leave/return/sleep times here, that is that service's job.
+- **Powietrze** — temperature, humidity, CO2, and optionally PM2.5/VOC/radon (`None` until a
+  sensor exists), plus ventilation state, filter and dampness-risk indicators.
+
+Enum-like fields (`mode`, `hvac_state`, `schedule_mode`, `ventilation_state`, ...) arrive
+as ready-to-show Polish text rather than a code the page translates - `live.format_value`
+already passes a string value through unchanged, so there is no separate translation table
+to keep in sync with whatever the future service decides to call its states.
+
 ## Charts
 
 The app never scans raw samples; it reads metrica's pre-aggregated tables, so the day view
@@ -356,6 +392,8 @@ yet simply has no line instead of a fake zero baseline.
 cavewebrun.py            entry point: argparse + ui.run
 caveweb.example.json     configuration template (copy to caveweb.json)
 caveweb.service          systemd unit
+scripts/
+    comfort_stub.py       manual dev tool: random cave/comfort payload, not a service
 caveweb/
     __init__.py          registers pages, starts the MQTT client on startup
     config.py            database path, broker, ui.run arguments
@@ -371,6 +409,7 @@ caveweb/
         home.py          "/home"                 tiles with live values
         boiler.py        "/boiler"               CO boiler readouts
         boiler_config.py "/boiler/config"        all setpoints from PARAMS_HEATING
+        comfort.py        "/comfort"              comfort/air quality, presentation only
         pv.py            "/pv"                   inverter readouts
         charts.py        "/charts"               chart tiles
         temperature.py   "/charts/temperature"

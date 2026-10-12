@@ -17,6 +17,12 @@ __version__ = "0.1"
 # nikt nigdy nie publikuje pod źle nazwanym topikiem).
 RELAY_MODULE = 'relay_heating'
 
+# Komfort w domu (/comfort) - jeden retained JSON ze wszystkimi polami naraz
+# (temperatura, wilgotność, CO2, stan ogrzewania/wentylacji...), bo publisher
+# to dopiero przyszła, dedykowana usługa - do tego czasu ląduje tu testowy,
+# losowy payload (patrz scripts/comfort_stub.py). caveweb tylko prezentuje.
+COMFORT_TOPIC = 'cave/comfort'
+
 
 def sensor(name: str, kind: str = 'temperature') -> str:
     return f'cave/sensors/{kind}/{name}'

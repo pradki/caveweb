@@ -16,7 +16,7 @@ from support import check, done, ensure_nicegui
 ensure_nicegui()
 
 from caveweb import fuel_level, heating_params, live, topics
-from caveweb.pages import boiler, boiler_config, home, pv, temperatures
+from caveweb.pages import boiler, boiler_config, comfort, home, pv, temperatures
 
 # --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
 # Samo istnienie pages/foo.py nic nie rejestruje - @ui.page tylko dekoruje
@@ -73,6 +73,12 @@ check("kafelek temperatur na ekranie głównym pokazuje zewnątrz i wewnątrz",
           ('cave/sensors/temperature/outside_temp',),
           ('cave/sensors/temperature/inside_temp',),
       ])
+check("kafelek komfortu pokazuje temperaturę, wilgotność i CO2 z cave/comfort",
+      [(spec.topics, spec.key) for spec in home.COMFORT_TILE] == [
+          ((topics.COMFORT_TOPIC,), 'temp_current'),
+          ((topics.COMFORT_TOPIC,), 'humidity'),
+          ((topics.COMFORT_TOPIC,), 'co2'),
+      ])
 
 # --- strona /temperatures ------------------------------------------------------
 
@@ -100,6 +106,7 @@ check("filtr zna tylko zadeklarowane czujniki",
 PANELS = {
     'home.BOILER_TILE': home.BOILER_TILE,
     'home.PV_TILE': home.PV_TILE,
+    'home.COMFORT_TILE': home.COMFORT_TILE,
     'boiler.FURNACE': boiler.FURNACE,
     'boiler.HOUSE': boiler.HOUSE,
     'boiler.WORK': boiler.WORK,
@@ -108,6 +115,9 @@ PANELS = {
     'pv.BATTERY': pv.BATTERY,
     'pv.LOAD': pv.LOAD,
     'pv.TODAY': pv.TODAY,
+    'comfort.COMFORT': comfort.COMFORT,
+    'comfort.SCHEDULE': comfort.SCHEDULE,
+    'comfort.AIR': comfort.AIR,
 }
 
 for name, values in PANELS.items():
@@ -167,5 +177,14 @@ check("topics.relay_counters", topics.relay_counters('co_feeder') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_feeder/counters')
 check("topics.relay_cmd", topics.relay_cmd('co_pump_boiler', 'caveweb') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_pump_boiler/cmd/caveweb')
+check("topics.COMFORT_TOPIC", topics.COMFORT_TOPIC == 'cave/comfort')
+
+# --- strona /comfort - żadna pozycja nie ma awaryjnej kolumny w bazie --------
+# (metrica jeszcze nie zbiera cave/comfort - to nie czujnik, dedykowana
+# usługa dopiero powstanie)
+check("żadna pozycja /comfort nie ma kolumny w bazie",
+      all(spec.columns == () for values in
+          (comfort.COMFORT, comfort.SCHEDULE, comfort.AIR, home.COMFORT_TILE)
+          for spec in values))
 
 done()
