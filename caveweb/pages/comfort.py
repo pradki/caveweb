@@ -13,10 +13,10 @@ gotowy do pokazania tekst po polsku - `live.format_value` przepuszcza string
 bez zmian, więc nie trzeba osobnego słownika tłumaczeń tutaj.
 
 Sekcja "Konfiguracja" niżej to jedyne miejsce, gdzie ta strona coś publikuje -
-sześć nastaw bang-bang (etap 0), bez których comfort-controller nie ma jak
-zdecydować, kiedy jest "dzień" i jak szeroko otworzyć zawór. Reszta nastaw tej
-usługi (inside_temp, mixing_valve_time) na razie nie ma tu formularza - "na
-razie tylko to, co niezbędne do pracy"."""
+siedem nastaw: temperatura zadana i sześć bang-bang (etap 0), bez których
+comfort-controller nie ma jak zdecydować, kiedy jest "dzień" i jak szeroko
+otworzyć zawór. `mixing_valve_time` na razie nie ma tu formularza - "na razie
+tylko to, co niezbędne do pracy"."""
 
 from __future__ import annotations
 __version__ = "0.2"
@@ -70,16 +70,18 @@ SCHEDULE = [
     v('Nadpisanie', 'override_state', icon='edit_calendar'),
 ]
 
-# (nazwa pola w cave/comfort/setpoints/<nazwa>, etykieta, typ, min, max,
-# domyślna, jednostka) - sześć nastaw bang-bang etapu 0 w comfort-controller
-# (patrz jego config.example.py - te same domyślne).
+# (nazwa pola w cave/comfort/setpoints/<nazwa> - UWAGA, "setpoints" w liczbie
+# mnogiej, tak jak cave/heating/setpoints/* - etykieta, typ, min, max,
+# domyślna, jednostka, krok) - nastawa temperatury i sześć bang-bang etapu 0
+# w comfort-controller (patrz jego config.example.py - te same domyślne).
 CONFIG_FIELDS = [
-    ('day_start_hour', 'Dzień od (godz.)', 'int', 0, 23, 6, ''),
-    ('day_end_hour', 'Dzień do (godz.)', 'int', 0, 23, 20, ''),
-    ('mixing_valve_low_day', 'Próg niski - dzień', 'float', 0, 100, 20.0, '%'),
-    ('mixing_valve_high_day', 'Próg wysoki - dzień', 'float', 0, 100, 25.0, '%'),
-    ('mixing_valve_low_night', 'Próg niski - noc', 'float', 0, 100, 15.0, '%'),
-    ('mixing_valve_high_night', 'Próg wysoki - noc', 'float', 0, 100, 20.0, '%'),
+    ('inside_temp', 'Nastawa temperatury', 'float', 15.0, 28.0, 21.0, '°C', 0.1),
+    ('day_start_hour', 'Dzień od (godz.)', 'int', 0, 23, 6, '', 1),
+    ('day_end_hour', 'Dzień do (godz.)', 'int', 0, 23, 20, '', 1),
+    ('mixing_valve_low_day', 'Próg niski - dzień', 'float', 0, 100, 20.0, '%', 1),
+    ('mixing_valve_high_day', 'Próg wysoki - dzień', 'float', 0, 100, 25.0, '%', 1),
+    ('mixing_valve_low_night', 'Próg niski - noc', 'float', 0, 100, 15.0, '%', 1),
+    ('mixing_valve_high_night', 'Próg wysoki - noc', 'float', 0, 100, 20.0, '%', 1),
 ]
 
 
@@ -96,15 +98,15 @@ def clamp_config_value(data_type: str, min_v: float, max_v: float, value) -> int
 
 
 def config_section() -> None:
-    """Sześć nastaw bang-bang etapu 0 (patrz CONFIG_FIELDS) - "Wczytaj"
-    wypełnia pola aktualnymi wartościami z brokera (albo domyślnymi, gdy
-    jeszcze nic tam nie ma), "Zapisz" publikuje WSZYSTKIE na raz, tak samo
+    """Nastawa temperatury i sześć bang-bang etapu 0 (patrz CONFIG_FIELDS) -
+    "Wczytaj" wypełnia pola aktualnymi wartościami z brokera (albo domyślnymi,
+    gdy jeszcze nic tam nie ma), "Zapisz" publikuje WSZYSTKIE na raz, tak samo
     jak /boiler/config robi to dla nastaw kotła."""
     inputs = {}
 
     def load_from_broker(notify: bool = True) -> None:
         filled = 0
-        for name, _, data_type, _, _, default, _ in CONFIG_FIELDS:
+        for name, _, data_type, _, _, default, _, _ in CONFIG_FIELDS:
             value = mqttclient.cache.value(config_setpoint_topic(name))
             widget = inputs.get(name)
             if widget is None:
@@ -119,7 +121,7 @@ def config_section() -> None:
 
     def save_to_broker() -> None:
         sent = 0
-        for name, _, data_type, min_v, max_v, _, _ in CONFIG_FIELDS:
+        for name, _, data_type, min_v, max_v, _, _, _ in CONFIG_FIELDS:
             widget = inputs.get(name)
             if widget is None or widget.value is None:
                 continue
@@ -135,13 +137,15 @@ def config_section() -> None:
         ui.button('Zapisz', icon='save', on_click=save_to_broker).props('color=primary')
 
     with ui.column().classes('w-full gap-1'):
-        for name, label, data_type, min_v, max_v, default, unit in CONFIG_FIELDS:
+        for name, label, data_type, min_v, max_v, default, unit, step in CONFIG_FIELDS:
             with ui.row().classes('w-full items-center gap-3 no-wrap'):
                 ui.label(label).classes('text-sm w-44')
-                step = 1 if data_type == 'int' else 1.0
+                # Krok całkowity (godziny, %) -> bez miejsc po przecinku;
+                # krok ułamkowy (0.1°C temperatury) -> jedno miejsce.
+                digits = 0 if float(step).is_integer() else 1
                 inputs[name] = number_stepper(
                     value=default, min=min_v, max=max_v, step=step,
-                    suffix=unit or None, format=('%.0f' if data_type == 'int' else '%.0f'),
+                    suffix=unit or None, format=f'%.{digits}f',
                     classes='w-48')
 
     ui.timer(1.0, lambda: load_from_broker(notify=False), once=True)
@@ -161,8 +165,9 @@ def comfort() -> None:
             panels.append(panel)
 
         section('Konfiguracja')
-        ui.label('Sześć nastaw niezbędnych comfort-controller do pracy (etap 0) - '
-                 'reszta nastaw tej usługi nie ma tu jeszcze formularza.') \
+        ui.label('Nastawy niezbędne comfort-controller do pracy (etap 0) - '
+                 'reszta nastaw tej usługi (np. mixing_valve_time) nie ma tu '
+                 'jeszcze formularza.') \
             .classes('text-xs text-grey-7')
         config_section()
 

@@ -20,9 +20,12 @@ TEMPERATURES_TILE = [
 ]
 
 COMFORT_TILE = [
-    # Wprost z czujnika, nie z cave/comfort (temp_current) - ten sam pomiar,
-    # ale niezależny od tego, czy comfort-controller akurat działa.
+    # Wprost z czujników, nie z cave/comfort (temp_current) - ten sam pomiar
+    # inside_temp, ale niezależny od tego, czy comfort-controller akurat
+    # działa. floor_temp obok, w tym samym wierszu (render_compact, dwie
+    # pozycje) - żeby kafelek nie urósł o drugi rząd.
     live.value_of('temperatura', topics.sensor('inside_temp'), unit='°C', digits=1),
+    live.value_of('podłoga', topics.sensor('floor_temp'), unit='°C', digits=1),
 ]
 
 # Wilgotność i CO2 przeniesione tu z Panelu komfortu - inny temat (powietrze,
@@ -69,13 +72,11 @@ def home() -> None:
                 .tooltip('Szacowane zużycie węgla za całą dobę (z dzisiejszego tempa)')
         boiler.bind('piec', temp_label)
 
-    def comfort_body() -> None:
-        # Tylko temperatura + emoji pompy (♨️ pracuje / 💤 nie) - wilgotność i
-        # CO2 przeniosły się na kafelek Rekuperacja, inny temat.
-        with ui.row().classes('items-baseline gap-1 justify-center flex-nowrap'):
-            temp_label = ui.label('–').classes('text-lg font-medium leading-tight')
-            live.bool_emoji_field(topics.COMFORT_TOPIC, 'pump_on', '♨️', '💤')
-        comfort.bind('temperatura', temp_label)
+    def comfort_header() -> None:
+        # Emoji pompy (♨️ pracuje / 💤 nie) obok tytułu - tak jak poziom
+        # paliwa obok "Kocioł CO" - żeby nie liczyło się do wierszy w body i
+        # zostało miejsce na temperaturę + podłogę w jednym rzędzie.
+        live.bool_emoji_field(topics.COMFORT_TOPIC, 'pump_on', '♨️', '💤')
 
     with tile_grid():
         tile('insert_chart', 'Wykresy', target='/charts',
@@ -89,7 +90,8 @@ def home() -> None:
         tile('thermostat', 'Temperatury', target='/temperatures',
              body=temperatures.render_compact)
         tile('spa', 'Panel komfortu', target='/comfort',
-             body=comfort_body)
+             header_body=comfort_header,
+             body=comfort.render_compact)
         tile('air', 'Rekuperacja', target='/recuperation',
              body=recuperation.render_compact)
         tile('power', 'Przekaźniki', target='/relays')

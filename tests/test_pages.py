@@ -73,9 +73,10 @@ check("kafelek temperatur na ekranie głównym pokazuje zewnątrz i wewnątrz",
           ('cave/sensors/temperature/outside_temp',),
           ('cave/sensors/temperature/inside_temp',),
       ])
-check("kafelek komfortu: tylko temperatura, wprost z czujnika",
+check("kafelek komfortu: temperatura wewnętrzna i podłogi, wprost z czujników",
       [(spec.topics, spec.key) for spec in home.COMFORT_TILE] == [
           (('cave/sensors/temperature/inside_temp',), 'value'),
+          (('cave/sensors/temperature/floor_temp',), 'value'),
       ])
 check("kafelek rekuperacji: wilgotność i CO2 z cave/comfort",
       [(spec.topics, spec.key) for spec in home.RECUPERATION_TILE] == [
@@ -194,7 +195,7 @@ check("żadna pozycja /comfort i /recuperation nie ma kolumny w bazie",
            home.RECUPERATION_TILE)
           for spec in values))
 
-# --- strona /comfort - formularz sześciu nastaw bang-bang etapu 0 -----------
+# --- strona /comfort - formularz nastawy temperatury + sześciu bang-bang etapu 0
 
 check("CONFIG_FIELDS adresuje nastawy comfort-controller pod cave/comfort/setpoints/*",
       all(comfort.config_setpoint_topic(name) == f'cave/comfort/setpoints/{name}'
@@ -203,12 +204,16 @@ check("nazwy pól unikalne", len({name for name, *_ in comfort.CONFIG_FIELDS})
       == len(comfort.CONFIG_FIELDS))
 check("min < max i domyślna w zakresie, dla każdego pola",
       all(min_v < max_v and min_v <= default <= max_v
-          for _, _, _, min_v, max_v, default, _ in comfort.CONFIG_FIELDS))
+          for _, _, _, min_v, max_v, default, _, _ in comfort.CONFIG_FIELDS))
+check("krok dodatni dla każdego pola", all(step > 0 for *_, step in comfort.CONFIG_FIELDS))
+check("nastawa temperatury ma krok 0.1 - reszta pełne jednostki",
+      comfort.CONFIG_FIELDS[0][0] == 'inside_temp' and comfort.CONFIG_FIELDS[0][-1] == 0.1
+      and all(field[-1] == 1 for field in comfort.CONFIG_FIELDS[1:]))
 check("progi niskie niższe niż wysokie, w obu porach dnia (domyślne wartości)",
-      comfort.CONFIG_FIELDS[2][5] < comfort.CONFIG_FIELDS[3][5]   # low/high dzień
-      and comfort.CONFIG_FIELDS[4][5] < comfort.CONFIG_FIELDS[5][5])  # low/high noc
+      comfort.CONFIG_FIELDS[3][5] < comfort.CONFIG_FIELDS[4][5]   # low/high dzień
+      and comfort.CONFIG_FIELDS[5][5] < comfort.CONFIG_FIELDS[6][5])  # low/high noc
 check("godzina początku dnia wcześniejsza niż końca (domyślne wartości)",
-      comfort.CONFIG_FIELDS[0][5] < comfort.CONFIG_FIELDS[1][5])
+      comfort.CONFIG_FIELDS[1][5] < comfort.CONFIG_FIELDS[2][5])
 
 check("clamp_config_value: w zakresie - bez zmian",
       comfort.clamp_config_value('float', 0, 100, 25.0) == 25.0)

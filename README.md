@@ -31,14 +31,14 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Panel komfortu** (just the room temperature + ♨️/💤 for whether the floor pump is running), **Rekuperacja** (humidity + CO2), **Przekaźniki**, **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Panel komfortu** (♨️/💤 for the floor pump next to the title, same spot as Kocioł CO's fuel level; room + floor temperature on the tile), **Rekuperacja** (humidity + CO2), **Przekaźniki**, **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; all 4 buffer sensors (top, upper-middle, lower-middle, bottom), inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button (confirmation dialog, configurable °C/minutes) — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost); **Wykres temperatur** goes to `/temperatures`, not a `/charts/*` page, since that's where the actual chart and sensor picker live |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Zapisz** publishes the whole form — see [Writing setpoints](#writing-setpoints) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it, at what priority, when its lease expires, and an **Akcja** button to force on/off/flash_on (duration in s/min/h, your pick) — see [Relays](#relays-manual-channel-control) |
-| `/comfort` | Room temperature, floor mixing valve/pump and a simplified day/night schedule, from `cave/comfort` (real for temperature/valve - `comfort-controller`; still stubbed for the rest) — plus a small config form for the six setpoints that service needs to run — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
+| `/comfort` | Room temperature, floor mixing valve/pump and a simplified day/night schedule, from `cave/comfort` (real for temperature/valve - `comfort-controller`; still stubbed for the rest) — plus a small config form for the temperature target and six bang-bang setpoints that service needs to run — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
 | `/recuperation` | Humidity, CO2 and other air-quality fields, moved out of `/comfort` — still presentation-only, no publisher of its own yet — see [Recuperation](#recuperation-still-presentation-only) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
@@ -64,7 +64,7 @@ declares which field it wants:
 | `cave/relay/<module>/<name>/cmd/caveweb` | — | **published** by this app: `co_pump_boiler` automatically alongside the Wypalanie boost (`{"cmd": "flash_on", "duration": 600, "priority": 20}`, see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost)), or any channel manually from `/relays`'s **Akcja** button |
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 | `cave/comfort` | `temp_current`, `humidity`, `co2`, `hvac_state`, `schedule_mode`, `mixing_valve*`, `pump_on`, ... | one JSON with everything `/comfort` and `/recuperation` show — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
-| `cave/comfort/setpoints/<name>` | `value` | the six `comfort-controller` setpoints `/comfort`'s **Konfiguracja** section writes — **published** by this app, retained |
+| `cave/comfort/setpoints/<name>` | `value` | the seven `comfort-controller` setpoints `/comfort`'s **Konfiguracja** section writes — **published** by this app, retained |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -335,13 +335,17 @@ Two read-only sections, one `LivePanel` each:
   `schedule_profile`/`override_state` still come from the stub (no workday/weekend or override
   concept in `comfort-controller` yet).
 
-A third section, **Konfiguracja**, is the one place this page writes anything: the six setpoints
-`comfort-controller` needs to run its stage-0 bang-bang at all - day/night boundary hours and the
-four `mixing_valve_low`/`_high` day/night levels - published to their own
+A third section, **Konfiguracja**, is the one place this page writes anything: the room
+temperature target (`inside_temp` - note the topic is `cave/comfort/setpoints/inside_temp`,
+plural "setpoints" like `cave/heating/setpoints/*`, not "setpoint") at 0.1°C resolution, plus the
+six setpoints `comfort-controller` needs to run its stage-0 bang-bang at all - day/night boundary
+hours and the four `mixing_valve_low`/`_high` day/night levels - published to their own
 `cave/comfort/setpoints/<name>` topics (retained), the same "whole form at once, clamped to
-range" shape as `/boiler/config`'s `clamp_value()`/**Zapisz** (`clamp_config_value()` here).
-Deliberately not every setpoint `comfort-controller` has (`inside_temp`, `mixing_valve_time`) -
-"for now, just what's necessary for it to run," per the person who asked for this form.
+range" shape as `/boiler/config`'s `clamp_value()`/**Zapisz** (`clamp_config_value()` here, with a
+per-field `step` in `CONFIG_FIELDS` - 0.1 for the temperature, 1 for everything else - driving
+both the stepper buttons and the display precision). Deliberately not every setpoint
+`comfort-controller` has (`mixing_valve_time` still doesn't have a field here) - "for now, just
+what's necessary for it to run," per the person who asked for this form.
 
 Enum-like fields (`mode`, `hvac_state`, `schedule_mode`, `ventilation_state`, ...) arrive
 as ready-to-show Polish text rather than a code the page translates - `live.format_value`
