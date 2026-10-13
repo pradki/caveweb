@@ -16,7 +16,7 @@ from support import check, done, ensure_nicegui
 ensure_nicegui()
 
 from caveweb import fuel_level, heating_params, live, topics
-from caveweb.pages import boiler, boiler_config, comfort, home, pv, temperatures
+from caveweb.pages import boiler, boiler_config, comfort, home, pv, recuperation, temperatures
 
 # --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
 # Samo istnienie pages/foo.py nic nie rejestruje - @ui.page tylko dekoruje
@@ -73,9 +73,12 @@ check("kafelek temperatur na ekranie głównym pokazuje zewnątrz i wewnątrz",
           ('cave/sensors/temperature/outside_temp',),
           ('cave/sensors/temperature/inside_temp',),
       ])
-check("kafelek komfortu: temperatura wprost z czujnika, wilgotność i CO2 z cave/comfort",
+check("kafelek komfortu: tylko temperatura, wprost z czujnika",
       [(spec.topics, spec.key) for spec in home.COMFORT_TILE] == [
           (('cave/sensors/temperature/inside_temp',), 'value'),
+      ])
+check("kafelek rekuperacji: wilgotność i CO2 z cave/comfort",
+      [(spec.topics, spec.key) for spec in home.RECUPERATION_TILE] == [
           ((topics.COMFORT_TOPIC,), 'humidity'),
           ((topics.COMFORT_TOPIC,), 'co2'),
       ])
@@ -107,6 +110,7 @@ PANELS = {
     'home.BOILER_TILE': home.BOILER_TILE,
     'home.PV_TILE': home.PV_TILE,
     'home.COMFORT_TILE': home.COMFORT_TILE,
+    'home.RECUPERATION_TILE': home.RECUPERATION_TILE,
     'boiler.FURNACE': boiler.FURNACE,
     'boiler.HOUSE': boiler.HOUSE,
     'boiler.WORK': boiler.WORK,
@@ -118,7 +122,7 @@ PANELS = {
     'comfort.COMFORT': comfort.COMFORT,
     'comfort.VALVE': comfort.VALVE,
     'comfort.SCHEDULE': comfort.SCHEDULE,
-    'comfort.AIR': comfort.AIR,
+    'recuperation.AIR': recuperation.AIR,
 }
 
 for name, values in PANELS.items():
@@ -180,14 +184,39 @@ check("topics.relay_cmd", topics.relay_cmd('co_pump_boiler', 'caveweb') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_pump_boiler/cmd/caveweb')
 check("topics.COMFORT_TOPIC", topics.COMFORT_TOPIC == 'cave/comfort')
 
-# --- strona /comfort - żadna pozycja nie ma awaryjnej kolumny w bazie --------
-# (metrica jeszcze nie zbiera cave/comfort - to nie czujnik, dedykowana
-# usługa dopiero powstanie)
-check("żadna pozycja /comfort nie ma kolumny w bazie (metrica tego topiku nie zbiera - "
-      "inside_temp na kafelku /home to inny temat, patrz osobny check wyżej)",
+# --- strony /comfort i /recuperation - żadna pozycja nie ma awaryjnej kolumny
+# w bazie (metrica tego topiku nie zbiera - to nie czujnik, dedykowane usługi
+# dopiero powstają/są w budowie); inside_temp na kafelku /home to inny temat,
+# patrz osobny check wyżej (ten czujnik metrica już zbiera) -----------------
+check("żadna pozycja /comfort i /recuperation nie ma kolumny w bazie",
       all(spec.columns == () for values in
-          (comfort.COMFORT, comfort.VALVE, comfort.SCHEDULE, comfort.AIR)
-          for spec in values)
-      and all(spec.columns == () for spec in home.COMFORT_TILE[1:]))
+          (comfort.COMFORT, comfort.VALVE, comfort.SCHEDULE, recuperation.AIR,
+           home.RECUPERATION_TILE)
+          for spec in values))
+
+# --- strona /comfort - formularz sześciu nastaw bang-bang etapu 0 -----------
+
+check("CONFIG_FIELDS adresuje nastawy comfort-controller pod cave/comfort/setpoints/*",
+      all(comfort.config_setpoint_topic(name) == f'cave/comfort/setpoints/{name}'
+          for name, *_ in comfort.CONFIG_FIELDS))
+check("nazwy pól unikalne", len({name for name, *_ in comfort.CONFIG_FIELDS})
+      == len(comfort.CONFIG_FIELDS))
+check("min < max i domyślna w zakresie, dla każdego pola",
+      all(min_v < max_v and min_v <= default <= max_v
+          for _, _, _, min_v, max_v, default, _ in comfort.CONFIG_FIELDS))
+check("progi niskie niższe niż wysokie, w obu porach dnia (domyślne wartości)",
+      comfort.CONFIG_FIELDS[2][5] < comfort.CONFIG_FIELDS[3][5]   # low/high dzień
+      and comfort.CONFIG_FIELDS[4][5] < comfort.CONFIG_FIELDS[5][5])  # low/high noc
+check("godzina początku dnia wcześniejsza niż końca (domyślne wartości)",
+      comfort.CONFIG_FIELDS[0][5] < comfort.CONFIG_FIELDS[1][5])
+
+check("clamp_config_value: w zakresie - bez zmian",
+      comfort.clamp_config_value('float', 0, 100, 25.0) == 25.0)
+check("clamp_config_value: poza zakresem - przycięte, nie odrzucone",
+      comfort.clamp_config_value('float', 0, 100, 150.0) == 100.0
+      and comfort.clamp_config_value('float', 0, 100, -5.0) == 0.0)
+check("clamp_config_value: int zaokrąglony do liczby całkowitej",
+      comfort.clamp_config_value('int', 0, 23, 19.6) == 20
+      and isinstance(comfort.clamp_config_value('int', 0, 23, 19.6), int))
 
 done()

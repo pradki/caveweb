@@ -17,6 +17,7 @@ from .pages import boiler_config
 from .pages import boiler_refuel
 from .pages import comfort
 from .pages import pv
+from .pages import recuperation
 from .pages import relays
 from .pages import settings
 from .pages import temperatures

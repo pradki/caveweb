@@ -307,6 +307,23 @@ def inline_topic_field(topic: str, field: str, prefix: str = '', suffix: str = '
     return value_label
 
 
+def bool_emoji_field(topic: str, field: str, true_emoji: str, false_emoji: str,
+                     interval: float = 30.0, classes: str = 'text-lg leading-tight'):
+    """Jedna z dwóch emoji wg wartości bool w polu JSON na danym topicu (np.
+    pompa podłogówki na kafelku Panel komfortu: ♨️ gdy pracuje, 💤 gdy nie) -
+    bez znaku zamiast obu, dopóki nic nie przyszło, żeby nie sugerować stanu,
+    którego jeszcze nie znamy."""
+    value_label = ui.label('').classes(classes)
+
+    def refresh() -> None:
+        value = mqttclient.cache.value(topic, field)
+        value_label.text = '' if value is None else (true_emoji if value else false_emoji)
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(interval, refresh)
+    return value_label
+
+
 def clock_label(interval: float = 1.0):
     """Zegar YYYY-MM-DD HH:MM:SS - czas serwera (Pi), nie przeglądarki, więc
     zgadza się z tym, co widać w logach i na wykresach."""

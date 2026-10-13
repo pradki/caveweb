@@ -1,27 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Panel komfortu – temperatura, zawór mieszający podłogówki, wilgotność,
-jakość powietrza i (na razie uproszczony) harmonogram dzień/noc.
+"""Panel komfortu – temperatura, zawór mieszający podłogówki i (na razie
+uproszczony) harmonogram dzień/noc. Wilgotność/CO2/jakość powietrza
+przeniosły się na `/recuperation` - patrz tamten moduł.
 
 Wszystko z jednego retained topicu (`topics.COMFORT_TOPIC`) - caveweb tylko
 prezentuje, licząca/sterująca usługa (`comfort-controller`, osobne repo -
 integracja tylko przez MQTT) publikuje tam temperaturę i stan zaworu/pompy
-(etap 0: bang-bang dzień/noc, patrz jej README). Wilgotność/CO2/PM2.5/
-harmonogram/wentylacja itd. nie mają jeszcze żadnego publishera - stąd nadal
-testowy, losowy payload dla TYCH pól (`scripts/comfort_stub.py`), dopóki nie
-dojdą odpowiednie czujniki/etapy. Strona pokazuje cokolwiek akurat jest na
-topicu, z "–" przy brakujących polach, identycznie jak reszta aplikacji. Pola
-enumeracyjne (tryb, stan, harmonogram...) przychodzą już jako gotowy do
-pokazania tekst po polsku - `live.format_value` przepuszcza string bez zmian,
-więc nie trzeba osobnego słownika tłumaczeń tutaj.
-"""
+(etap 0: bang-bang dzień/noc, patrz jej README). Strona pokazuje cokolwiek
+akurat jest na topicu, z "–" przy brakujących polach, identycznie jak reszta
+aplikacji. Pola enumeracyjne (tryb, stan, harmonogram...) przychodzą już jako
+gotowy do pokazania tekst po polsku - `live.format_value` przepuszcza string
+bez zmian, więc nie trzeba osobnego słownika tłumaczeń tutaj.
+
+Sekcja "Konfiguracja" niżej to jedyne miejsce, gdzie ta strona coś publikuje -
+sześć nastaw bang-bang (etap 0), bez których comfort-controller nie ma jak
+zdecydować, kiedy jest "dzień" i jak szeroko otworzyć zawór. Reszta nastaw tej
+usługi (inside_temp, mixing_valve_time) na razie nie ma tu formularza - "na
+razie tylko to, co niezbędne do pracy"."""
 
 from __future__ import annotations
-__version__ = "0.1"
+__version__ = "0.2"
+
+import json
 
 from nicegui import ui
 
-from .. import live, topics
-from ..widgets import page_header, section
+from .. import live, mqttclient, topics
+from ..widgets import number_stepper, page_header, section
 
 TOPIC = topics.COMFORT_TOPIC
 
@@ -65,19 +70,81 @@ SCHEDULE = [
     v('Nadpisanie', 'override_state', icon='edit_calendar'),
 ]
 
-# PM2.5/VOC/radon - opcjonalne, zależnie od zamontowanych czujników; brak
-# wartości w payloadzie (None) pokazuje się jak wszędzie indziej jako "–".
-AIR = [
-    v('Temperatura', 'temp_current', unit='°C', digits=1, icon='thermostat'),
-    v('Wilgotność', 'humidity', unit='%', digits=0, icon='water_drop'),
-    v('CO2', 'co2', unit='ppm', digits=0, icon='co2'),
-    v('PM2.5', 'pm25', unit='µg/m³', digits=0, icon='grain'),
-    v('VOC', 'voc', unit='ppb', digits=0, icon='science'),
-    v('Radon', 'radon', unit='Bq/m³', digits=0, icon='warning'),
-    v('Wentylacja', 'ventilation_state', icon='mode_fan'),
-    v('Filtr', 'filter_state', icon='filter_alt'),
-    v('Zawilgocenie', 'damp_state', icon='water_damage'),
+# (nazwa pola w cave/comfort/setpoints/<nazwa>, etykieta, typ, min, max,
+# domyślna, jednostka) - sześć nastaw bang-bang etapu 0 w comfort-controller
+# (patrz jego config.example.py - te same domyślne).
+CONFIG_FIELDS = [
+    ('day_start_hour', 'Dzień od (godz.)', 'int', 0, 23, 6, ''),
+    ('day_end_hour', 'Dzień do (godz.)', 'int', 0, 23, 20, ''),
+    ('mixing_valve_low_day', 'Próg niski - dzień', 'float', 0, 100, 20.0, '%'),
+    ('mixing_valve_high_day', 'Próg wysoki - dzień', 'float', 0, 100, 25.0, '%'),
+    ('mixing_valve_low_night', 'Próg niski - noc', 'float', 0, 100, 15.0, '%'),
+    ('mixing_valve_high_night', 'Próg wysoki - noc', 'float', 0, 100, 20.0, '%'),
 ]
+
+
+def config_setpoint_topic(name: str) -> str:
+    return f'{TOPIC}/setpoints/{name}'
+
+
+def clamp_config_value(data_type: str, min_v: float, max_v: float, value) -> int | float:
+    """Przycięcie do typu i zakresu - patrz boiler_config.clamp_value po
+    uzasadnienie (ten sam powód: usługa, która dostanie wartość spoza
+    zakresu, nie przytnie jej sama, tylko zresetuje do swojego configu)."""
+    value = max(min_v, min(max_v, float(value)))
+    return int(round(value)) if data_type == 'int' else value
+
+
+def config_section() -> None:
+    """Sześć nastaw bang-bang etapu 0 (patrz CONFIG_FIELDS) - "Wczytaj"
+    wypełnia pola aktualnymi wartościami z brokera (albo domyślnymi, gdy
+    jeszcze nic tam nie ma), "Zapisz" publikuje WSZYSTKIE na raz, tak samo
+    jak /boiler/config robi to dla nastaw kotła."""
+    inputs = {}
+
+    def load_from_broker(notify: bool = True) -> None:
+        filled = 0
+        for name, _, data_type, _, _, default, _ in CONFIG_FIELDS:
+            value = mqttclient.cache.value(config_setpoint_topic(name))
+            widget = inputs.get(name)
+            if widget is None:
+                continue
+            if value is None:
+                widget.value = default
+                continue
+            widget.value = int(round(value)) if data_type == 'int' else float(value)
+            filled += 1
+        if notify:
+            ui.notify(f'Wczytano {filled} z {len(CONFIG_FIELDS)} nastaw z brokera')
+
+    def save_to_broker() -> None:
+        sent = 0
+        for name, _, data_type, min_v, max_v, _, _ in CONFIG_FIELDS:
+            widget = inputs.get(name)
+            if widget is None or widget.value is None:
+                continue
+            value = clamp_config_value(data_type, min_v, max_v, widget.value)
+            mqttclient.publish(config_setpoint_topic(name), json.dumps({'value': value}),
+                              qos=0, retain=True)
+            sent += 1
+        ui.notify(f'Wysłano {sent} nastaw do comfort-controller', type='positive')
+
+    with ui.row().classes('w-full items-center gap-2'):
+        ui.button('Wczytaj z brokera', icon='download',
+                  on_click=lambda: load_from_broker()).props('outline')
+        ui.button('Zapisz', icon='save', on_click=save_to_broker).props('color=primary')
+
+    with ui.column().classes('w-full gap-1'):
+        for name, label, data_type, min_v, max_v, default, unit in CONFIG_FIELDS:
+            with ui.row().classes('w-full items-center gap-3 no-wrap'):
+                ui.label(label).classes('text-sm w-44')
+                step = 1 if data_type == 'int' else 1.0
+                inputs[name] = number_stepper(
+                    value=default, min=min_v, max=max_v, step=step,
+                    suffix=unit or None, format=('%.0f' if data_type == 'int' else '%.0f'),
+                    classes='w-48')
+
+    ui.timer(1.0, lambda: load_from_broker(notify=False), once=True)
 
 
 @ui.page('/comfort')
@@ -87,11 +154,17 @@ def comfort() -> None:
     panels = []
     with ui.column().classes('w-full p-3 gap-2'):
         for title, values in (('Komfort', COMFORT), ('Zawór mieszający', VALVE),
-                              ('Harmonogram', SCHEDULE), ('Powietrze', AIR)):
+                              ('Harmonogram', SCHEDULE)):
             section(title)
             panel = live.LivePanel(values)
             panel.render_cards()
             panels.append(panel)
+
+        section('Konfiguracja')
+        ui.label('Sześć nastaw niezbędnych comfort-controller do pracy (etap 0) - '
+                 'reszta nastaw tej usługi nie ma tu jeszcze formularza.') \
+            .classes('text-xs text-grey-7')
+        config_section()
 
     for panel in panels:
         panel.start()

@@ -31,14 +31,15 @@ Two data sources, each for what it is good at:
 
 | Route | What is on it |
 |-------|---------------|
-| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Panel komfortu** (temperature/humidity/CO2 on the tile), **Przekaźniki**, **Rolety** and **Nawadnianie** (placeholders, no action yet) |
+| `/home` | A clock (`YYYY-MM-DD HH:MM:SS`) on the right of the header. Tiles: **Wykresy**, **Kocioł CO** (fuel level next to the title, furnace temperature + today's/projected coal energy on the tile), **PV** (PV power next to the title, battery SOC + load on the tile), **Temperatury** (outside/inside on the tile), **Panel komfortu** (just the room temperature + ♨️/💤 for whether the floor pump is running), **Rekuperacja** (humidity + CO2), **Przekaźniki**, **Rolety** and **Nawadnianie** (placeholders, no action yet) |
 | `/boiler` | Furnace, flue gas, feeder, return, DHW and fireplace-return temperatures; all 4 buffer sensors (top, upper-middle, lower-middle, bottom), inside and outside; one card per device (fan, feeder) with its total and today's runtime, feeder also showing today's coal in kg/kWh; the key setpoints; **Wypalanie** button (confirmation dialog, configurable °C/minutes) — see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost); **Wykres temperatur** goes to `/temperatures`, not a `/charts/*` page, since that's where the actual chart and sensor picker live |
 | `/boiler/config` | Every setpoint from `PARAMS_HEATING` — current value from the broker next to an input bounded by the parameter's own min/max. **Zapisz** publishes the whole form — see [Writing setpoints](#writing-setpoints) |
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
 | `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it, at what priority, when its lease expires, and an **Akcja** button to force on/off/flash_on (duration in s/min/h, your pick) — see [Relays](#relays-manual-channel-control) |
-| `/comfort` | Temperature, humidity, air quality and a simplified day/night schedule, in three sections (Komfort, Harmonogram, Powietrze) — read-only, from a single `cave/comfort` topic a future dedicated service will own — see [Comfort](#comfort-presentation-only-pending-a-real-service) |
+| `/comfort` | Room temperature, floor mixing valve/pump and a simplified day/night schedule, from `cave/comfort` (real for temperature/valve - `comfort-controller`; still stubbed for the rest) — plus a small config form for the six setpoints that service needs to run — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
+| `/recuperation` | Humidity, CO2 and other air-quality fields, moved out of `/comfort` — still presentation-only, no publisher of its own yet — see [Recuperation](#recuperation-still-presentation-only) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
 
@@ -62,7 +63,8 @@ declares which field it wants:
 | `cave/relay/<module>/<alias>/counters` | `today_s`, `total_s` | `{"today_s": 5400, ...}` |
 | `cave/relay/<module>/<name>/cmd/caveweb` | — | **published** by this app: `co_pump_boiler` automatically alongside the Wypalanie boost (`{"cmd": "flash_on", "duration": 600, "priority": 20}`, see [Burning off](#burning-off-a-temporary-self-reverting-setpoint-boost)), or any channel manually from `/relays`'s **Akcja** button |
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
-| `cave/comfort` | `temp_current`, `humidity`, `co2`, `hvac_state`, `schedule_mode`, ... | one JSON with everything `/comfort` shows — see [Comfort](#comfort-presentation-only-pending-a-real-service) |
+| `cave/comfort` | `temp_current`, `humidity`, `co2`, `hvac_state`, `schedule_mode`, `mixing_valve*`, `pump_on`, ... | one JSON with everything `/comfort` and `/recuperation` show — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
+| `cave/comfort/setpoints/<name>` | `value` | the six `comfort-controller` setpoints `/comfort`'s **Konfiguracja** section writes — **published** by this app, retained |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -307,39 +309,62 @@ as `state`/`by`/`priority` - the gateway's reconciler already converts the winni
 show a countdown ("za 45 s", "za 5 min", ...), refreshed by the same 5 s timer as the rest of the
 table. `None` (a channel with no active lease at all) shows as "–".
 
-### Comfort: presentation only, pending a real service
+### Comfort: real for temperature/valve, still stubbed for air quality
 
-`/comfort` (`caveweb/pages/comfort.py`) shows temperature, humidity, air quality and a
-simplified schedule indicator, all read from one retained topic, `cave/comfort`
-(`topics.COMFORT_TOPIC`). Unlike every other write path in this app, nothing here
-publishes anything - the actual sensing/control logic (per-zone setpoints, heat/cool/auto,
-ventilation control, a real day/night/away/vacation schedule with overrides) is meant to be
-a separate, dedicated service that does not exist yet. caveweb only ever reads this topic
-and renders whatever JSON is on it, the same "–" for a missing field as everywhere else in
-the app - once that service starts publishing, the page needs no changes.
+`/comfort` (`caveweb/pages/comfort.py`) shows room temperature and the floor-heating mixing
+valve/pump, all read from one retained topic, `cave/comfort` (`topics.COMFORT_TOPIC`). This
+used to be presentation-only for everything on that topic; it no longer is for this part -
+[comfort-controller](https://github.com/pradki/comfort-controller) (a separate, standalone
+service, same MQTT-only shape as `cwu-controller`/`heating-controller`) now really decides the
+valve target and publishes `temp_current`/`hvac_state`/`schedule_mode`/`mixing_valve*`/`pump_on`.
+Humidity/CO2/air quality do not have a real publisher yet, so those still come from
+`scripts/comfort_stub.py` (unchanged - see below) and now live on their own page,
+[`/recuperation`](#recuperation-still-presentation-only).
 
-Until then, `scripts/comfort_stub.py` publishes a plausible, slowly drifting random payload
-to `cave/comfort` (retained) so the page has something to show - a manual dev tool, not a
-systemd service, and not imported by the `caveweb` package at all:
+Two read-only sections, one `LivePanel` each:
+
+- **Komfort** — current/target temperature, mode (heating only in this first stage, `None`
+  until a future stage adds cooling/auto), heating/idle state, zone (one zone for now), and an
+  `alarm_reason` cell that stays blank unless `comfort-controller`'s frozen-sensor fail-safe has
+  tripped (see that repo's README).
+- **Zawór mieszający** — `mixing_valve` (current target %, not a position sensor - the
+  controller has none, see its README), the day/night `mixing_valve_low`/`_high` currently in
+  effect, `mixing_valve_time` (full travel time) and whether the floor pump is running.
+- **Harmonogram** — day/night mode and workday/weekend profile only, per the user's own
+  expectation that this is "in practice probably just day/night" until a real schedule exists;
+  `schedule_profile`/`override_state` still come from the stub (no workday/weekend or override
+  concept in `comfort-controller` yet).
+
+A third section, **Konfiguracja**, is the one place this page writes anything: the six setpoints
+`comfort-controller` needs to run its stage-0 bang-bang at all - day/night boundary hours and the
+four `mixing_valve_low`/`_high` day/night levels - published to their own
+`cave/comfort/setpoints/<name>` topics (retained), the same "whole form at once, clamped to
+range" shape as `/boiler/config`'s `clamp_value()`/**Zapisz** (`clamp_config_value()` here).
+Deliberately not every setpoint `comfort-controller` has (`inside_temp`, `mixing_valve_time`) -
+"for now, just what's necessary for it to run," per the person who asked for this form.
+
+Enum-like fields (`mode`, `hvac_state`, `schedule_mode`, `ventilation_state`, ...) arrive
+as ready-to-show Polish text rather than a code the page translates - `live.format_value`
+already passes a string value through unchanged, so there is no separate translation table
+to keep in sync with whatever the publishing service decides to call its states.
+
+### Recuperation: still presentation-only
+
+`/recuperation` (`caveweb/pages/recuperation.py`) is what `/comfort`'s **Powietrze** section used
+to be, moved to its own page because it is a different subsystem (ventilation/air quality) with
+no publisher of its own yet - still the same `cave/comfort` topic as `/comfort` for now (nothing
+else exists to read from), expected to move to its own topic once a real recuperation service is
+built. Temperature, humidity, CO2, and optionally PM2.5/VOC/radon (`None` until a sensor exists),
+plus ventilation state, filter and dampness-risk indicators - still only ever from
+`scripts/comfort_stub.py`:
 
 ```bash
 python scripts/comfort_stub.py --host 127.0.0.1
 ```
 
-Three sections, one `LivePanel` each:
-
-- **Komfort** — current/target temperature, mode (heating only in this first stage),
-  heating/idle state, zone (one zone for now).
-- **Harmonogram** — day/night mode and workday/weekend profile only, per the user's own
-  expectation that this is "in practice probably just day/night" until the real service
-  exists; no editable wake/leave/return/sleep times here, that is that service's job.
-- **Powietrze** — temperature, humidity, CO2, and optionally PM2.5/VOC/radon (`None` until a
-  sensor exists), plus ventilation state, filter and dampness-risk indicators.
-
-Enum-like fields (`mode`, `hvac_state`, `schedule_mode`, `ventilation_state`, ...) arrive
-as ready-to-show Polish text rather than a code the page translates - `live.format_value`
-already passes a string value through unchanged, so there is no separate translation table
-to keep in sync with whatever the future service decides to call its states.
+Running it alongside `comfort-controller` is fine for these fields specifically (nothing else
+publishes them), but see that script's own docstring for the fields it should no longer be
+trusted for.
 
 ## Charts
 
@@ -423,7 +448,8 @@ caveweb/
         home.py          "/home"                 tiles with live values
         boiler.py        "/boiler"               CO boiler readouts
         boiler_config.py "/boiler/config"        all setpoints from PARAMS_HEATING
-        comfort.py        "/comfort"              comfort/air quality, presentation only
+        comfort.py        "/comfort"              temperature + floor valve/pump, config form
+        recuperation.py   "/recuperation"         humidity/CO2/air quality, presentation only
         pv.py            "/pv"                   inverter readouts
         charts.py        "/charts"               chart tiles
         temperature.py   "/charts/temperature"

@@ -23,6 +23,11 @@ COMFORT_TILE = [
     # Wprost z czujnika, nie z cave/comfort (temp_current) - ten sam pomiar,
     # ale niezależny od tego, czy comfort-controller akurat działa.
     live.value_of('temperatura', topics.sensor('inside_temp'), unit='°C', digits=1),
+]
+
+# Wilgotność i CO2 przeniesione tu z Panelu komfortu - inny temat (powietrze,
+# nie temperatura/zawór), docelowo osobna usługa rekuperacji.
+RECUPERATION_TILE = [
     live.Value('wilgotność', (topics.COMFORT_TOPIC,), key='humidity',
               unit='%', digits=0, columns=()),
     live.Value('CO2', (topics.COMFORT_TOPIC,), key='co2',
@@ -47,6 +52,7 @@ def home() -> None:
     pv = live.LivePanel(PV_TILE)
     temperatures = live.LivePanel(TEMPERATURES_TILE)
     comfort = live.LivePanel(COMFORT_TILE)
+    recuperation = live.LivePanel(RECUPERATION_TILE)
 
     def boiler_body() -> None:
         # Jeden wiersz, nie `render_compact` (dwie kolumny z podpisami pod
@@ -63,6 +69,14 @@ def home() -> None:
                 .tooltip('Szacowane zużycie węgla za całą dobę (z dzisiejszego tempa)')
         boiler.bind('piec', temp_label)
 
+    def comfort_body() -> None:
+        # Tylko temperatura + emoji pompy (♨️ pracuje / 💤 nie) - wilgotność i
+        # CO2 przeniosły się na kafelek Rekuperacja, inny temat.
+        with ui.row().classes('items-baseline gap-1 justify-center flex-nowrap'):
+            temp_label = ui.label('–').classes('text-lg font-medium leading-tight')
+            live.bool_emoji_field(topics.COMFORT_TOPIC, 'pump_on', '♨️', '💤')
+        comfort.bind('temperatura', temp_label)
+
     with tile_grid():
         tile('insert_chart', 'Wykresy', target='/charts',
              subtitle='temperatury, moc, energia')
@@ -75,7 +89,9 @@ def home() -> None:
         tile('thermostat', 'Temperatury', target='/temperatures',
              body=temperatures.render_compact)
         tile('spa', 'Panel komfortu', target='/comfort',
-             body=comfort.render_compact)
+             body=comfort_body)
+        tile('air', 'Rekuperacja', target='/recuperation',
+             body=recuperation.render_compact)
         tile('power', 'Przekaźniki', target='/relays')
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
@@ -88,4 +104,5 @@ def home() -> None:
     pv.start()
     temperatures.start()
     comfort.start()
+    recuperation.start()
     live.mqtt_status_label()
