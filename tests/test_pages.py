@@ -224,4 +224,9 @@ check("clamp_config_value: int zaokrąglony do liczby całkowitej",
       comfort.clamp_config_value('int', 0, 23, 19.6) == 20
       and isinstance(comfort.clamp_config_value('int', 0, 23, 19.6), int))
 
+check("'Nastawa' w sekcji Komfort czyta wprost cave/comfort/setpoints/inside_temp, "
+      "nie zdublowane pole na cave/comfort (usunięte stamtąd - patrz comfort_controller README)",
+      next(spec for spec in comfort.COMFORT if spec.label == 'Nastawa').topics
+      == (comfort.config_setpoint_topic('inside_temp'),))
+
 done()

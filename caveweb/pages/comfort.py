@@ -38,11 +38,20 @@ def v(label: str, key: str, **kwargs) -> live.Value:
     return live.Value(label, (TOPIC,), key=key, columns=(), **kwargs)
 
 
+def config_setpoint_topic(name: str) -> str:
+    return f'{TOPIC}/setpoints/{name}'
+
+
 # Aktualna temperatura i zadana, tryb grzania (na razie tylko grzanie, bez
-# chłodzenia/auto), stan urządzenia, strefa (na razie zawsze jedna).
+# chłodzenia/auto), stan urządzenia, strefa (na razie zawsze jedna). Nastawa
+# czytana WPROST z cave/comfort/setpoints/inside_temp, nie z pola "temp_setpoint"
+# na cave/comfort - to drugie było echem tej samej wartości, które potrafiło
+# zostać w tyle do najbliższego ticku comfort-controller (wyglądało jak błąd,
+# mimo że sama nastawa na broker już doszła) - usunięte stamtąd właśnie dlatego.
 COMFORT = [
     v('Temperatura', 'temp_current', unit='°C', digits=1, icon='thermostat'),
-    v('Nastawa', 'temp_setpoint', unit='°C', digits=1, icon='flag'),
+    live.Value('Nastawa', (config_setpoint_topic('inside_temp'),), key='value',
+              unit='°C', digits=1, icon='flag', columns=()),
     v('Tryb', 'mode', icon='tune'),
     v('Stan', 'hvac_state', icon='local_fire_department'),
     v('Strefa', 'zone', icon='home'),
@@ -83,10 +92,6 @@ CONFIG_FIELDS = [
     ('mixing_valve_low_night', 'Próg niski - noc', 'float', 0, 100, 15.0, '%', 1),
     ('mixing_valve_high_night', 'Próg wysoki - noc', 'float', 0, 100, 20.0, '%', 1),
 ]
-
-
-def config_setpoint_topic(name: str) -> str:
-    return f'{TOPIC}/setpoints/{name}'
 
 
 def clamp_config_value(data_type: str, min_v: float, max_v: float, value) -> int | float:
