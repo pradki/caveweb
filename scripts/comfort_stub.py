@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tymczasowy generator danych na `cave/comfort` - zanim powstanie prawdziwa,
+"""Tymczasowy generator danych na `cave/comfort` - zanim powstała prawdziwa,
 dedykowana usługa licząca komfort (patrz caveweb/topics.py:COMFORT_TOPIC i
 caveweb/pages/comfort.py). caveweb tylko prezentuje to, co znajdzie na tym
 topicu - ten skrypt tylko po to, żeby strona /comfort miała co pokazać, zanim
 tamta usługa powstanie. Niezależny od pakietu caveweb (sam paho-mqtt), do
 ręcznego odpalenia przy testowaniu - nie jest usługą systemd.
+
+UWAGA: `comfort-controller` (osobne repo, github.com/pradki/comfort-controller)
+już realnie publikuje temperaturę i stan zaworu/pompy na ten sam topic, co
+tydzień temu było tu jeszcze losowe (temp_current/temp_setpoint/hvac_state/
+mixing_valve*/pump_on/alarm*/schedule_mode/updated_at - patrz jego README,
+"etap 0"). Retained publish nadpisuje CAŁY payload, nie łączy pól - więc
+odpalenie tego skryptu RÓWNOLEGLE z działającym comfort-controller po prostu
+nadpisze jego dane losowymi, aż ten znowu opublikuje (do 60 s, patrz jego
+CONTROL_INTERVAL). Przydatne już tylko do podglądu pól, których żaden
+publisher jeszcze nie ma (wilgotność, CO2, PM2.5, harmonogram...) - nie
+uruchamiaj w pętli (`--interval`) obok działającej usługi, chyba że akurat
+testujesz tamte brakujące pola i nie przeszkadza ci, że zagłuszysz resztę.
 
     python scripts/comfort_stub.py --host 127.0.0.1
     python scripts/comfort_stub.py --host 127.0.0.1 --once

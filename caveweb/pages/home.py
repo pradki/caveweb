@@ -20,8 +20,9 @@ TEMPERATURES_TILE = [
 ]
 
 COMFORT_TILE = [
-    live.Value('temperatura', (topics.COMFORT_TOPIC,), key='temp_current',
-              unit='°C', digits=1, columns=()),
+    # Wprost z czujnika, nie z cave/comfort (temp_current) - ten sam pomiar,
+    # ale niezależny od tego, czy comfort-controller akurat działa.
+    live.value_of('temperatura', topics.sensor('inside_temp'), unit='°C', digits=1),
     live.Value('wilgotność', (topics.COMFORT_TOPIC,), key='humidity',
               unit='%', digits=0, columns=()),
     live.Value('CO2', (topics.COMFORT_TOPIC,), key='co2',

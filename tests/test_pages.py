@@ -73,9 +73,9 @@ check("kafelek temperatur na ekranie głównym pokazuje zewnątrz i wewnątrz",
           ('cave/sensors/temperature/outside_temp',),
           ('cave/sensors/temperature/inside_temp',),
       ])
-check("kafelek komfortu pokazuje temperaturę, wilgotność i CO2 z cave/comfort",
+check("kafelek komfortu: temperatura wprost z czujnika, wilgotność i CO2 z cave/comfort",
       [(spec.topics, spec.key) for spec in home.COMFORT_TILE] == [
-          ((topics.COMFORT_TOPIC,), 'temp_current'),
+          (('cave/sensors/temperature/inside_temp',), 'value'),
           ((topics.COMFORT_TOPIC,), 'humidity'),
           ((topics.COMFORT_TOPIC,), 'co2'),
       ])
@@ -116,6 +116,7 @@ PANELS = {
     'pv.LOAD': pv.LOAD,
     'pv.TODAY': pv.TODAY,
     'comfort.COMFORT': comfort.COMFORT,
+    'comfort.VALVE': comfort.VALVE,
     'comfort.SCHEDULE': comfort.SCHEDULE,
     'comfort.AIR': comfort.AIR,
 }
@@ -182,9 +183,11 @@ check("topics.COMFORT_TOPIC", topics.COMFORT_TOPIC == 'cave/comfort')
 # --- strona /comfort - żadna pozycja nie ma awaryjnej kolumny w bazie --------
 # (metrica jeszcze nie zbiera cave/comfort - to nie czujnik, dedykowana
 # usługa dopiero powstanie)
-check("żadna pozycja /comfort nie ma kolumny w bazie",
+check("żadna pozycja /comfort nie ma kolumny w bazie (metrica tego topiku nie zbiera - "
+      "inside_temp na kafelku /home to inny temat, patrz osobny check wyżej)",
       all(spec.columns == () for values in
-          (comfort.COMFORT, comfort.SCHEDULE, comfort.AIR, home.COMFORT_TILE)
-          for spec in values))
+          (comfort.COMFORT, comfort.VALVE, comfort.SCHEDULE, comfort.AIR)
+          for spec in values)
+      and all(spec.columns == () for spec in home.COMFORT_TILE[1:]))
 
 done()
