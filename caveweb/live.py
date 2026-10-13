@@ -307,17 +307,19 @@ def inline_topic_field(topic: str, field: str, prefix: str = '', suffix: str = '
     return value_label
 
 
-def bool_emoji_field(topic: str, field: str, true_emoji: str, false_emoji: str,
-                     interval: float = 30.0, classes: str = 'text-lg leading-tight'):
-    """Jedna z dwóch emoji wg wartości bool w polu JSON na danym topicu (np.
-    pompa podłogówki na kafelku Panel komfortu: ♨️ gdy pracuje, 💤 gdy nie) -
-    bez znaku zamiast obu, dopóki nic nie przyszło, żeby nie sugerować stanu,
-    którego jeszcze nie znamy."""
+def mapped_emoji_field(topic: str, field: str, mapping: dict, default: str = '',
+                       interval: float = 30.0, classes: str = 'text-lg leading-tight'):
+    """Emoji wybrana ze słownika wg wartości pola JSON na danym topicu (np.
+    kafelek Panel komfortu: ♨️/💤 wg hvac_state - który próg bang-bang jest
+    teraz aktywny, "grzeje"/"czeka", NIE czy pompa akurat pracuje - ta od
+    etapu z decoupled pump_on prawie zawsze chodzi, więc przestała cokolwiek
+    różnicować). `default` (pusty znak) zamiast zgadywania, dopóki nic nie
+    przyszło albo wartość nie pasuje do żadnego klucza w `mapping`."""
     value_label = ui.label('').classes(classes)
 
     def refresh() -> None:
         value = mqttclient.cache.value(topic, field)
-        value_label.text = '' if value is None else (true_emoji if value else false_emoji)
+        value_label.text = default if value is None else mapping.get(value, default)
 
     ui.timer(0.1, refresh, once=True)
     ui.timer(interval, refresh)

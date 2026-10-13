@@ -73,10 +73,14 @@ def home() -> None:
         boiler.bind('piec', temp_label)
 
     def comfort_header() -> None:
-        # Emoji pompy (♨️ pracuje / 💤 nie) obok tytułu - tak jak poziom
-        # paliwa obok "Kocioł CO" - żeby nie liczyło się do wierszy w body i
-        # zostało miejsce na temperaturę + podłogę w jednym rzędzie.
-        live.bool_emoji_field(topics.COMFORT_TOPIC, 'pump_on', '♨️', '💤')
+        # Emoji wg hvac_state - który próg bang-bang jest teraz aktywny:
+        # ♨️ "grzeje" (mixing_valve_high), 💤 "czeka" (mixing_valve_low). NIE
+        # stan pompy - ta chodzi prawie zawsze (patrz comfort-controller
+        # README), więc nic by to nie różnicowało. Obok tytułu, tak jak
+        # poziom paliwa obok "Kocioł CO" - żeby zostało miejsce w body na
+        # temperaturę + podłogę w jednym rzędzie.
+        live.mapped_emoji_field(topics.COMFORT_TOPIC, 'hvac_state',
+                                {'grzeje': '♨️', 'czeka': '💤'})
 
     with tile_grid():
         tile('insert_chart', 'Wykresy', target='/charts',
