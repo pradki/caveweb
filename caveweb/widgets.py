@@ -84,6 +84,38 @@ def section(title: str) -> None:
     ui.label(title).classes('text-sm uppercase tracking-wide text-grey-6 mt-2')
 
 
+def number_stepper(label: str = '', *, value=None, min=None, max=None,
+                   step: float = 1, suffix: str | None = None,
+                   format: str | None = None, classes: str = 'w-32') -> ui.number:
+    """`ui.number` z dużymi przyciskami +/- obok pola, zamiast polegania na
+    natywnych strzałkach `input[type=number]` - na dotykowym 10" ekranie Pi w
+    te malutkie strzałki trudno trafić palcem (zgłoszone na /boiler/config).
+    `hide-spin-buttons` chowa je, a te dwa przyciski obok robią to samo, w
+    rozmiarze wygodnym do dotyku. `classes` ustawia szerokość całej grupy
+    (przyciski + pole), nie samego pola - ono rozciąga się między nimi, więc
+    to jest zamiennik 1:1 dla `ui.number(...).classes(classes)` gdziekolwiek
+    był używany wcześniej."""
+    def bump(delta: float) -> None:
+        current = number.value if number.value is not None else 0.0
+        new_value = current + delta
+        if min is not None and new_value < min:
+            new_value = min
+        if max is not None and new_value > max:
+            new_value = max
+        number.value = new_value
+
+    with ui.row().classes(f'items-center gap-1 no-wrap {classes}'):
+        ui.button(icon='remove', on_click=lambda: bump(-step)) \
+            .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
+        number = ui.number(label, value=value, min=min, max=max, step=step,
+                           suffix=suffix, format=format) \
+            .props('outlined dense hide-spin-buttons').classes('flex-grow min-w-0')
+        ui.button(icon='add', on_click=lambda: bump(step)) \
+            .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
+
+    return number
+
+
 def fuel_indicator(percent: float) -> None:
     """Mały wskaźnik paliwa: ikona + procent, kolor wg progu."""
     if percent < 20:

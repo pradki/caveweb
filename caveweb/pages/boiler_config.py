@@ -24,7 +24,7 @@ import json
 from nicegui import ui
 
 from .. import heating_params, live, mqttclient
-from ..widgets import page_header, section
+from ..widgets import number_stepper, page_header, section
 
 
 def spec_for(name: str, meta: dict) -> live.Value:
@@ -97,10 +97,9 @@ class BoilerConfigPage:
                 self.inputs[name] = ui.switch(value=bool(meta['default']))
             else:
                 step = 1 if meta['data_type'] == 'int' else 0.1
-                self.inputs[name] = ui.number(
+                self.inputs[name] = number_stepper(
                     value=meta['default'], min=meta['min'], max=meta['max'],
-                    step=step, suffix=meta['unit'] or None,
-                ).props('dense outlined').classes('w-32')
+                    step=step, suffix=meta['unit'] or None, classes='w-48')
 
             ui.label(f"{meta['min']} … {meta['max']} {meta['unit']}".strip()) \
                 .classes('text-xs text-grey-7 w-32')

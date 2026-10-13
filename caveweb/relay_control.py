@@ -2,9 +2,10 @@
 """Odkrywanie modułów/kanałów przekaźników i ręczne komendy z `/relays` -
 wszystko czytane z już płynącego MQTT (caveweb subskrybuje `cave/#`), bez
 hardkodowania listy modułów, aliasów czy liczby kanałów: gateway publikuje
-retained status każdego kanału (alias/numer, state, by, priorytet) i bitmaskę
-modułu (z liczbą kanałów) zaraz po starcie - to wystarczy do zbudowania
-tabeli i znajdzie też kolejne moduły, gdy ktoś je doda, bez zmiany kodu.
+retained status każdego kanału (alias/numer, state, by, priorytet, termin
+wygaśnięcia leasingu) i bitmaskę modułu (z liczbą kanałów) zaraz po starcie -
+to wystarczy do zbudowania tabeli i znajdzie też kolejne moduły, gdy ktoś je
+doda, bez zmiany kodu.
 
 Jedyna rzecz, jakiej nie da się tak wyczytać: kanał, który nigdy nie dostał
 ŻADNEGO statusu (np. zaraz po pierwszym starcie gatewaya, zanim zdążył
@@ -88,6 +89,11 @@ def channel_rows(module: str) -> list[dict]:
             'state': payload.get('state'),
             'by': payload.get('by'),
             'priority': payload.get('priority'),
+            # Epoch (time.time()), nie monotonic - gateway już przelicza
+            # lease.expires_at (monotonic) na czas ścienny przed publikacją,
+            # patrz reconciler.py:_publish_status - więc porównanie z
+            # time.time() tutaj jest wprost poprawne, bez własnej konwersji.
+            'expires_at': payload.get('expires_at'),
         })
     return rows
 

@@ -9,7 +9,7 @@ __version__ = "0.1"
 from nicegui import app, ui
 
 from .. import feeder_log, fuel_level, mqttclient, refuels, topics
-from ..widgets import page_header
+from ..widgets import number_stepper, page_header
 
 STORAGE_BAG_SIZE_KEY = 'refuel_bag_size_kg'
 FEEDER_COUNTERS_TOPIC = topics.relay_counters('co_feeder')
@@ -52,8 +52,8 @@ def refuel() -> None:
                     ui.label('brak danych z licznika podajnika (broker?)') \
                         .classes('text-xs text-grey-6')
 
-        bags = ui.number('Ilość worków', value=1, min=1, max=10, step=1,
-                         format='%.0f').classes('w-full')
+        bags = number_stepper('Ilość worków', value=1, min=1, max=10, step=1,
+                             format='%.0f', classes='w-full')
         bag_size_switch = ui.switch('Worki 25 kg (wyłączone = worki 20 kg)',
                                     value=(last_bag_size == 25)).classes('w-full')
         full_switch = ui.switch('Zasypano do pełna', value=True).classes('w-full')

@@ -15,6 +15,7 @@ from support import check, done, ensure_nicegui
 ensure_nicegui()
 
 from caveweb import mqttclient, relay_control
+from caveweb.pages import relays
 
 
 def reset():
@@ -43,7 +44,8 @@ mqttclient.cache.put('cave/relay/relay_heating/status', {'channels': 30})
 mqttclient.cache.put('cave/relay/relay_heating/co_fan/status',
                      {'channel': 1, 'state': 'off', 'by': None, 'priority': None})
 mqttclient.cache.put('cave/relay/relay_heating/co_pump_boiler/status',
-                     {'channel': 3, 'state': 'flash_on', 'by': 'caveweb', 'priority': 20})
+                     {'channel': 3, 'state': 'flash_on', 'by': 'caveweb', 'priority': 20,
+                      'expires_at': 1_800_000_600.0})
 mqttclient.cache.put('cave/relay/relay_heating/ch5/status',
                      {'channel': 5, 'state': 'on', 'by': 'heating_service', 'priority': 10})
 mqttclient.cache.put('cave/relay/relay_cwu/cwu_l1/status', {'channel': 1, 'state': 'off'})
@@ -58,13 +60,16 @@ rows = relay_control.channel_rows('relay_heating')
 check("tyle wierszy, ile 'channels' w bitmasce", len(rows) == 30)
 row1 = next(r for r in rows if r['channel'] == 1)
 check("wiersz znanego kanału niesie state/by/priority",
-      row1 == {'channel': 1, 'name': 'co_fan', 'state': 'off', 'by': None, 'priority': None})
+      row1 == {'channel': 1, 'name': 'co_fan', 'state': 'off', 'by': None,
+              'priority': None, 'expires_at': None})
 row3 = next(r for r in rows if r['channel'] == 3)
-check("inny znany kanał", row3 == {'channel': 3, 'name': 'co_pump_boiler',
-                                   'state': 'flash_on', 'by': 'caveweb', 'priority': 20})
+check("inny znany kanał, z terminem wygaśnięcia leasingu",
+      row3 == {'channel': 3, 'name': 'co_pump_boiler', 'state': 'flash_on',
+              'by': 'caveweb', 'priority': 20, 'expires_at': 1_800_000_600.0})
 row2 = next(r for r in rows if r['channel'] == 2)
 check("kanał bez żadnego statusu -> ch<N>, puste pola",
-      row2 == {'channel': 2, 'name': 'ch2', 'state': None, 'by': None, 'priority': None})
+      row2 == {'channel': 2, 'name': 'ch2', 'state': None, 'by': None,
+              'priority': None, 'expires_at': None})
 
 reset()
 check("brak bitmaski -> pusta lista wierszy", relay_control.channel_rows('relay_heating') == [])
@@ -115,5 +120,17 @@ check("nieznana/nieobsługiwana komenda -> odmowa", ok is False)
 mqttclient._client = FakeClientFail()
 ok, message = relay_control.send_command('relay_heating', 'co_fan', 'on', 50)
 check("błąd publikacji (rc != 0) -> odmowa z komunikatem", ok is False and 'rc=4' in message)
+
+
+# --- _format_expiry: odliczanie do wygaśnięcia leasingu, na stronie /relays -
+
+check("brak terminu -> myślnik", relays._format_expiry(None) == '–')
+check("już minęło -> 'wygasło'", relays._format_expiry(100.0, now=200.0) == 'wygasło')
+check("sekundy", relays._format_expiry(145.0, now=100.0) == 'za 45 s')
+check("minuty", relays._format_expiry(100.0 + 300.0, now=100.0) == 'za 5 min')
+check("godziny", relays._format_expiry(100.0 + 7200.0, now=100.0) == 'za 2.0 h')
+
+check("DURATION_UNITS: sekundy/minuty/godziny względem sekund",
+      relays.DURATION_UNITS == {'s': 1.0, 'min': 60.0, 'h': 3600.0})
 
 done()

@@ -14,7 +14,7 @@ from datetime import datetime
 from nicegui import ui
 
 from .. import fuel_level, furnace_boost, heating_params, live, topics
-from ..widgets import page_header, section
+from ..widgets import number_stepper, page_header, section
 
 
 def param(name: str, label: str, **kwargs) -> live.Value:
@@ -104,12 +104,12 @@ def furnace_boost_controls() -> None:
         ui.label('Wypalanie pieca').classes('text-base font-medium')
         ui.label('Czasowo podnosi nastawę pieca i włącza pompę - potwierdź, '
                  'żeby uniknąć przypadkowego kliknięcia.').classes('text-xs text-grey-6')
-        delta_input = ui.number('O ile stopni podnieść (°C)',
-                                value=furnace_boost.BOOST_DELTA_C,
-                                min=1, max=20, step=1, format='%.0f').classes('w-full')
-        duration_input = ui.number('Czas trwania (minuty)',
-                                   value=furnace_boost.BOOST_DURATION_SECONDS / 60,
-                                   min=1, max=60, step=1, format='%.0f').classes('w-full')
+        delta_input = number_stepper('O ile stopni podnieść (°C)',
+                                    value=furnace_boost.BOOST_DELTA_C,
+                                    min=1, max=20, step=1, format='%.0f', classes='w-full')
+        duration_input = number_stepper('Czas trwania (minuty)',
+                                       value=furnace_boost.BOOST_DURATION_SECONDS / 60,
+                                       min=1, max=60, step=1, format='%.0f', classes='w-full')
 
         def do_start() -> None:
             delta = float(delta_input.value or furnace_boost.BOOST_DELTA_C)

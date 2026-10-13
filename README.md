@@ -37,7 +37,7 @@ Two data sources, each for what it is good at:
 | `/boiler/refuel` | Log a feeder refuel: bag count, bag size (20/25 kg, remembered), whether filled to full — see [Writing data: the refuel log](#writing-data-the-refuel-log) |
 | `/pv` | PV total and per string, battery SOC and power, load total and per phase, today's battery charge/discharge and the consumption meter |
 | `/temperatures` | All 10 temperature sensors live, each with a checkbox; **Pokaż na wykresie** opens `/temperatures/chart` plotting only the checked ones. The selection is remembered per browser session |
-| `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it and at what priority, and an **Akcja** button to force on/off/flash_on — see [Relays](#relays-manual-channel-control) |
+| `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it, at what priority, when its lease expires, and an **Akcja** button to force on/off/flash_on (duration in s/min/h, your pick) — see [Relays](#relays-manual-channel-control) |
 | `/comfort` | Temperature, humidity, air quality and a simplified day/night schedule, in three sections (Komfort, Harmonogram, Powietrze) — read-only, from a single `cave/comfort` topic a future dedicated service will own — see [Comfort](#comfort-presentation-only-pending-a-real-service) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
@@ -295,6 +295,18 @@ doesn't quietly outlive the person who set it. The command goes out as
 shape every other service's commands use - the gateway can't tell a manual click here from an
 automated decision elsewhere.
 
+The duration field has a unit dropdown (s / min / h, `DURATION_UNITS` in `pages/relays.py`) next
+to it rather than making everyone do the arithmetic for e.g. a 2-hour `on` - switching units
+converts the number already typed so it still means the same real duration, and `confirm()`
+multiplies back to seconds before calling `send_command()` (the gateway only ever sees seconds).
+
+The table's **Wygasa** column reads `expires_at` straight off the same per-channel status payload
+as `state`/`by`/`priority` - the gateway's reconciler already converts the winning lease's
+(monotonic) `expires_at` to wall-clock time before publishing it (`reconciler.py`'s
+`_publish_status`), so `_format_expiry()` only needs a plain subtraction against `time.time()` to
+show a countdown ("za 45 s", "za 5 min", ...), refreshed by the same 5 s timer as the rest of the
+table. `None` (a channel with no active lease at all) shows as "–".
+
 ### Comfort: presentation only, pending a real service
 
 `/comfort` (`caveweb/pages/comfort.py`) shows temperature, humidity, air quality and a
@@ -404,7 +416,9 @@ caveweb/
     heating_params.py    copy of PARAMS_HEATING metadata (topic, type, range)
     chartpage.py         shared chart page: ranges, min/max, grouping, refresh
     widgets.py           header (back = browser history, not a fixed URL - one
-                         chart page is opened from several places), tiles, section headers
+                         chart page is opened from several places), tiles, section headers,
+                         number_stepper (large +/- buttons for every ui.number - a touchscreen
+                         can't reliably hit the native input[type=number] spin arrows)
     pages/
         home.py          "/home"                 tiles with live values
         boiler.py        "/boiler"               CO boiler readouts

@@ -12,7 +12,7 @@ import subprocess
 from nicegui import run, ui
 
 from .. import config
-from ..widgets import page_header, section
+from ..widgets import number_stepper, page_header, section
 
 DEFAULTS = {'enabled': True, 'timeout_seconds': 30, 'restart_wayvnc_on_wake': True}
 
@@ -65,10 +65,10 @@ def settings_page() -> None:
 
         enabled_switch = ui.switch('Wygaszacz ekranu', value=current['enabled']) \
             .classes('w-full')
-        timeout_number = ui.number('Czas do wygaszenia (s)',
-                                   value=current['timeout_seconds'],
-                                   min=5, max=3600, step=5, format='%.0f') \
-            .classes('w-full')
+        timeout_number = number_stepper('Czas do wygaszenia (s)',
+                                       value=current['timeout_seconds'],
+                                       min=5, max=3600, step=5, format='%.0f',
+                                       classes='w-full')
         wayvnc_switch = ui.switch('Restart wayvnc przy wybudzeniu',
                                   value=current['restart_wayvnc_on_wake']) \
             .classes('w-full')
