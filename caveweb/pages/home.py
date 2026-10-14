@@ -99,6 +99,7 @@ def home() -> None:
         tile('air', 'Rekuperacja', target='/recuperation',
              body=recuperation.render_compact)
         tile('power', 'Przekaźniki', target='/relays')
+        tile('auto_mode', 'Automatyzacje', target='/automations')
         tile('blinds', 'Rolety', subtitle='w przygotowaniu',
              on_click=lambda: ui.notify('Sterowanie roletami – wkrótce'))
         tile('water_drop', 'Nawadnianie', subtitle='w przygotowaniu',

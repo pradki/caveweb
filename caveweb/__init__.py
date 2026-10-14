@@ -12,6 +12,7 @@ from .pages import temperature
 from .pages import battery
 from .pages import power
 from .pages import energy
+from .pages import automations
 from .pages import boiler
 from .pages import boiler_config
 from .pages import boiler_refuel

@@ -40,6 +40,7 @@ Two data sources, each for what it is good at:
 | `/relays` | Pick a waveshare-mqtt-gateway module, then every one of its channels: number, name, state, who holds it, at what priority, when its lease expires, and an **Akcja** button to force on/off/flash_on (duration in s/min/h, your pick) — see [Relays](#relays-manual-channel-control) |
 | `/comfort` | Room temperature, floor mixing valve/pump and a simplified day/night schedule, from `cave/comfort` (real for temperature/valve - `comfort-controller`; still stubbed for the rest) — plus a small config form for the temperature target and six bang-bang setpoints that service needs to run — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
 | `/recuperation` | Humidity, CO2 and other air-quality fields, moved out of `/comfort` — still presentation-only, no publisher of its own yet — see [Recuperation](#recuperation-still-presentation-only) |
+| `/automations` | One row per `cave-service-manager` task: an enable switch, status/reason, a short config summary, an **edit** button and a tooltip description — see [Automations](#automations-small-independent-tasks) |
 | `/charts/*` | Temperatures, battery, power, energy — see [Charts](#charts) |
 | `/settings` | Kiosk configuration — currently just the screen-idle blanker (on/off, timeout, whether to restart wayvnc on wake) — see [Kiosk](#kiosk-fullscreen-on-the-pis-own-screen) |
 
@@ -65,6 +66,8 @@ declares which field it wants:
 | `cave/heating/fuel_level` | `value`, `today_energy_kwh`, `projected_daily_kwh`, ... | **published** by this app, hourly, retained — see [Publishing](#publishing-the-fuel-level-estimate) |
 | `cave/comfort` | `temp_current`, `humidity`, `co2`, `hvac_state`, `schedule_mode`, `mixing_valve*`, `pump_on`, ... | one JSON with everything `/comfort` and `/recuperation` show — see [Comfort](#comfort-real-for-temperaturevalve-still-stubbed-for-air-quality) |
 | `cave/comfort/setpoints/<name>` | `value` | the seven `comfort-controller` setpoints `/comfort`'s **Konfiguracja** section writes — **published** by this app, retained |
+| `cave/service-manager/tasks/<task>/status` | `enabled`, `triggered`, `driving`, `reason`, `config` | one `cave-service-manager` task's current state — read-only |
+| `cave/service-manager/tasks/<task>/setpoints/{enabled,<config key>}` | `value` | that task's enable switch and config fields — **published** by `/automations`, retained |
 
 Most publishers use `retain=True`, so the broker replays the current state right after the
 subscription and the screens are populated within a second of a restart. The client connects
@@ -370,6 +373,36 @@ Running it alongside `comfort-controller` is fine for these fields specifically 
 publishes them), but see that script's own docstring for the fields it should no longer be
 trusted for.
 
+### Automations: small, independent tasks
+
+`/automations` (`caveweb/pages/automations.py`) is caveweb's view onto
+[cave-service-manager](https://github.com/pradki/cave-service-manager) - a separate, standalone
+service that runs a small, growing list of independent tasks, each watching a couple of
+sensors/setpoints and deciding on its own whether to turn something on (today, all three share the
+boiler's circulation pump). `TASKS` at the top of the module is a **copy** of that service's task
+metadata (name, label, description, config schema) - the same relationship `heating_params.py` has
+to `shadow_vault.PARAMS_HEATING` - caveweb doesn't import that service's code (separate repo,
+MQTT-only), so a fourth task over there means a matching entry added here.
+
+One row per task:
+
+- An enable switch - publishes to `cave/service-manager/tasks/<task>/setpoints/enabled` the
+  moment it's toggled, no separate save step (the only field on this page that works that way -
+  the rest follow the same "edit, then **Zapisz**" shape as everywhere else).
+- **Status** - that task's own `reason` string from its status topic, color-coded: green while
+  it's actually driving the pump, grey while enabled but not triggered, red while disabled
+  (regardless of what it would do).
+- **Konfiguracja** - a short summary built from the task's own status echo (`status.config`), not
+  from whatever was last sent - the same reasoning as `/comfort`'s setpoint fields: showing what a
+  service is *actually* using beats showing what you last told it, in case anything else changed
+  it since.
+- An edit button opens a dialog (one persistent instance reused for every row, not recreated per
+  click - see `/relays`' own note on why: a dialog built while a periodically-cleared container is
+  its slot parent disappears the next time that container clears) with a `number_stepper` per
+  config field; **Zapisz** publishes every field for that one task, clamped to its range
+  (`clamp_config_value()`, the same shape as `/boiler/config` and `/comfort`).
+- An info icon's tooltip carries the task's longer description.
+
 ## Charts
 
 The app never scans raw samples; it reads metrica's pre-aggregated tables, so the day view
@@ -454,6 +487,7 @@ caveweb/
         boiler_config.py "/boiler/config"        all setpoints from PARAMS_HEATING
         comfort.py        "/comfort"              temperature + floor valve/pump, config form
         recuperation.py   "/recuperation"         humidity/CO2/air quality, presentation only
+        automations.py    "/automations"          cave-service-manager tasks: enable, status, config
         pv.py            "/pv"                   inverter readouts
         charts.py        "/charts"               chart tiles
         temperature.py   "/charts/temperature"

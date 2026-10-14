@@ -16,7 +16,8 @@ from support import check, done, ensure_nicegui
 ensure_nicegui()
 
 from caveweb import fuel_level, heating_params, live, topics
-from caveweb.pages import boiler, boiler_config, comfort, home, pv, recuperation, temperatures
+from caveweb.pages import (automations, boiler, boiler_config, comfort, home, pv,
+                           recuperation, temperatures)
 
 # --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
 # Samo istnienie pages/foo.py nic nie rejestruje - @ui.page tylko dekoruje
@@ -228,5 +229,29 @@ check("'Nastawa' w sekcji Komfort czyta wprost cave/comfort/setpoints/inside_tem
       "nie zdublowane pole na cave/comfort (usunięte stamtąd - patrz comfort_controller README)",
       next(spec for spec in comfort.COMFORT if spec.label == 'Nastawa').topics
       == (comfort.config_setpoint_topic('inside_temp'),))
+
+# --- strona /automations - kopia metadanych z cave-service-manager ----------
+
+check("nazwy zadań unikalne", len({name for name, *_ in automations.TASKS})
+      == len(automations.TASKS))
+check("status_topic/setpoint_topic adresują cave/service-manager poprawnie",
+      all(automations.status_topic(name) == f'cave/service-manager/tasks/{name}/status'
+          and all(automations.setpoint_topic(name, key) ==
+                  f'cave/service-manager/tasks/{name}/setpoints/{key}'
+                  for key, *_ in fields)
+          for name, _label, _desc, fields in automations.TASKS))
+check("min < max i domyślna w zakresie, dla każdego pola każdego zadania",
+      all(min_v < max_v and min_v <= default <= max_v
+          for _name, _label, _desc, fields in automations.TASKS
+          for _key, _flabel, _data_type, min_v, max_v, default, _unit, _step in fields))
+check("klucze pól unikalne w obrębie jednego zadania",
+      all(len({key for key, *_ in fields}) == len(fields)
+          for _name, _label, _desc, fields in automations.TASKS))
+
+check("clamp_config_value: w zakresie - bez zmian",
+      automations.clamp_config_value('float', 0, 100, 65.0) == 65.0)
+check("clamp_config_value: poza zakresem - przycięte, nie odrzucone",
+      automations.clamp_config_value('float', 40, 90, 150.0) == 90.0
+      and automations.clamp_config_value('float', 40, 90, 0.0) == 40.0)
 
 done()
