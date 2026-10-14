@@ -32,10 +32,11 @@ TASKS = [
      'włącza pompę, żeby odprowadzić nadmiar do bufora.',
      [('margin', 'Margines', 'float', 0.0, 30.0, 10.0, '°C', 1)]),
     ('cwu_reserve_protect', 'Rezerwa CWU',
-     'Gdy oba górne czujniki bufora spadną poniżej minimum, a piec ma jeszcze '
-     'czym grzać, włącza pompę, żeby dogrzać górę bufora (rezerwę CWU).',
-     [('furnace_min', 'Piec min.', 'float', 30.0, 80.0, 55.0, '°C', 1),
-      ('reserve_min', 'Rezerwa min.', 'float', 30.0, 70.0, 45.0, '°C', 1)]),
+     'Gdy który bądź z górnych czujników bufora spadnie poniżej nastawy CWU '
+     '(cave/heating/setpoints/dhw_temp), a piec jest włączony, włącza pompę, '
+     'żeby dogrzać górę bufora (rezerwę CWU). Bez własnej konfiguracji - oba '
+     'progi to nastawy heating-controller, nie tej usługi.',
+     []),
 ]
 
 
@@ -59,6 +60,8 @@ def _config_summary(name: str, fields: list) -> str:
     """Skrócona konfiguracja do kolumny tabeli - aktualne wartości z własnego
     statusu zadania (to, co ono faktycznie używa), nie z tego, co ostatnio
     wysłaliśmy - różnica ma znaczenie, gdyby ktoś zmienił coś z innego miejsca."""
+    if not fields:
+        return 'brak (nastawy innej usługi)'
     status = mqttclient.cache.value(status_topic(name), 'config')
     if not isinstance(status, dict):
         return '–'
@@ -157,8 +160,14 @@ def automations() -> None:
                         ui.label(reason).classes('flex-grow text-sm').style(f'color: {color}')
                         ui.label(_config_summary(name, fields)).classes('w-64 text-xs text-grey-6')
                         with ui.row().classes('items-center gap-1 no-wrap'):
-                            ui.button(icon='tune', on_click=lambda n=name, lbl=label, f=fields:
-                                     open_edit_dialog(n, lbl, f)).props('dense flat')
+                            # Bez pól do edycji (np. cwu_reserve_protect - same
+                            # cudze nastawy) nie ma czego otwierać w dialogu.
+                            edit_button = ui.button(
+                                icon='tune', on_click=lambda n=name, lbl=label, f=fields:
+                                open_edit_dialog(n, lbl, f)).props('dense flat')
+                            if not fields:
+                                edit_button.disable()
+                                edit_button.tooltip('Brak własnej konfiguracji')
                             ui.icon('info', size='18px').classes('text-grey-6').tooltip(desc)
 
         render_table()

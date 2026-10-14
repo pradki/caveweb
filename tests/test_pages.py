@@ -254,4 +254,8 @@ check("clamp_config_value: poza zakresem - przycięte, nie odrzucone",
       automations.clamp_config_value('float', 40, 90, 150.0) == 90.0
       and automations.clamp_config_value('float', 40, 90, 0.0) == 40.0)
 
+check("cwu_reserve_protect bez własnej konfiguracji - oba progi to nastawy heating-controller",
+      next(fields for name, _label, _desc, fields in automations.TASKS
+          if name == 'cwu_reserve_protect') == [])
+
 done()
