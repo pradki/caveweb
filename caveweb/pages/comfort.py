@@ -1,181 +1,226 @@
 # -*- coding: utf-8 -*-
-"""Panel komfortu – temperatura, zawór mieszający podłogówki i (na razie
-uproszczony) harmonogram dzień/noc. Wilgotność/CO2/jakość powietrza
-przeniosły się na `/recuperation` - patrz tamten moduł.
+"""Panel komfortu – jeden ekran z tym, co niezbędne do pracy na co dzień
+(temperatura, stan, zawór, aktualna/następna reguła); konfiguracja (harmonogram
+dzień/noc, nieobecność, strojenie zaworu) jest głębiej, na `/comfort/config` -
+ten sam podział co `/boiler` + `/boiler/config`, żeby ten ekran nie rozrastał
+się formularzami rzadko ruszanych nastaw (patrz założenia UI - "panel czytelny,
+tylko to co niezbędne do działania").
 
-Wszystko z jednego retained topicu (`topics.COMFORT_TOPIC`) - caveweb tylko
-prezentuje, licząca/sterująca usługa (`comfort-controller`, osobne repo -
-integracja tylko przez MQTT) publikuje tam temperaturę i stan zaworu/pompy
-(etap 0: bang-bang dzień/noc, patrz jej README). Strona pokazuje cokolwiek
-akurat jest na topicu, z "–" przy brakujących polach, identycznie jak reszta
-aplikacji. Pola enumeracyjne (tryb, stan, harmonogram...) przychodzą już jako
-gotowy do pokazania tekst po polsku - `live.format_value` przepuszcza string
-bez zmian, więc nie trzeba osobnego słownika tłumaczeń tutaj.
-
-Sekcja "Konfiguracja" niżej to jedyne miejsce, gdzie ta strona coś publikuje -
-siedem nastaw: temperatura zadana i sześć bang-bang (etap 0), bez których
-comfort-controller nie ma jak zdecydować, kiedy jest "dzień" i jak szeroko
-otworzyć zawór. `mixing_valve_time` na razie nie ma tu formularza - "na razie
-tylko to, co niezbędne do pracy"."""
+Wszystko, co silnik SAM zdecydował (`effective_setpoint`, `current_rule`,
+`next_rule`...) czytamy wprost z `cave/comfort` - ta strona nie liczy priorytetu
+nieobecność/dzień/noc samodzielnie (comfort-controller README, sekcja
+"Absence mode": "Interfejs ma prezentować decyzję silnika, a nie samodzielnie
+obliczać temperaturę"). Jedyny wyjątek to temperatura wewnętrzna i podłogi -
+czytane WPROST z czujników (`cave/sensors/temperature/*`), nie z `temp_current`
+na `cave/comfort` - niezależnie od tego, czy comfort-controller akurat działa
+(ten sam powód co kafelek Komfortu na `/home`)."""
 
 from __future__ import annotations
-__version__ = "0.2"
+__version__ = "0.3"
 
-import json
+from datetime import datetime
 
 from nicegui import ui
 
 from .. import live, mqttclient, topics
-from ..widgets import number_stepper, page_header, section
+from ..widgets import page_header
 
 TOPIC = topics.COMFORT_TOPIC
 
 
-def v(label: str, key: str, **kwargs) -> live.Value:
-    """Pole z payloadu /comfort - bez kolumny awaryjnej w bazie, bo metrica
-    tego topiku jeszcze nie zbiera (to nie czujnik, to dopiero przyszła
-    usługa)."""
-    return live.Value(label, (TOPIC,), key=key, columns=(), **kwargs)
+def format_until(iso_str) -> str:
+    """"do 19:00" dziś, "do 2026-10-20 08:00" gdy inny dzień - silnik zawsze
+    wysyła pełną datę+godzinę (patrz comfort_controller.py:_publish_status),
+    strona skraca wyświetlanie tylko gdy to i tak dzisiaj."""
+    if not iso_str:
+        return ''
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except (TypeError, ValueError):
+        return ''
+    if dt.date() == datetime.now().date():
+        return f'do {dt.strftime("%H:%M")}'
+    return f'do {dt.strftime("%Y-%m-%d %H:%M")}'
 
 
-def config_setpoint_topic(name: str) -> str:
-    return f'{TOPIC}/setpoints/{name}'
+def _mode_label(interval: float = 5.0):
+    """Tryb pracy w nagłówku strony (założenia UI, sekcja "Nagłówek")."""
+    label = ui.label('').classes('text-sm px-3 text-blue-2')
+
+    def refresh() -> None:
+        label.text = mqttclient.cache.value(TOPIC, 'current_rule') or ''
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(interval, refresh)
+    return label
 
 
-# Aktualna temperatura i zadana, tryb grzania (na razie tylko grzanie, bez
-# chłodzenia/auto), stan urządzenia, strefa (na razie zawsze jedna). Nastawa
-# czytana WPROST z cave/comfort/setpoints/inside_temp, nie z pola "temp_setpoint"
-# na cave/comfort - to drugie było echem tej samej wartości, które potrafiło
-# zostać w tyle do najbliższego ticku comfort-controller (wyglądało jak błąd,
-# mimo że sama nastawa na broker już doszła) - usunięte stamtąd właśnie dlatego.
-COMFORT = [
-    v('Temperatura', 'temp_current', unit='°C', digits=1, icon='thermostat'),
-    live.Value('Nastawa', (config_setpoint_topic('inside_temp'),), key='value',
-              unit='°C', digits=1, icon='flag', columns=()),
-    v('Tryb', 'mode', icon='tune'),
-    v('Stan', 'hvac_state', icon='local_fire_department'),
-    v('Strefa', 'zone', icon='home'),
-    v('Alarm', 'alarm_reason', icon='warning'),
+def _card(label: str, icon: str, classes: str = 'w-44') -> ui.card:
+    """Powłoka karty, ten sam wygląd co `live.LivePanel.render_cards()` -
+    reszta tej strony miesza karty bindowane przez LivePanel (Temperatura,
+    Wartość zadana, Temperatura podłogi) z kartami rysowanymi ręcznie (Stan,
+    Otwarcie zaworu - niepasujące do prostego "jedno pole -> jedna liczba"),
+    i obie mają wyglądać tak samo."""
+    card = ui.card().classes(f'{classes} p-3 gap-1')
+    with card:
+        with ui.row().classes('items-center gap-1 no-wrap'):
+            if icon:
+                ui.icon(icon).classes('text-sm text-blue-4')
+            ui.label(label).classes('text-xs text-grey-5')
+    return card
+
+
+def _state_card() -> None:
+    """"Stan": duży emoji+tekst wg `hvac_state` - która gałąź bang-bang jest
+    aktywna, NIE stan pompy (ta chodzi prawie zawsze - patrz comfort-controller
+    README, "The pump")."""
+    card = _card('Stan', 'local_fire_department')
+    with card:
+        state_label = ui.label('–').classes('text-2xl font-medium')
+
+    def refresh() -> None:
+        value = mqttclient.cache.value(TOPIC, 'hvac_state')
+        state_label.text = {'grzeje': '♨️ grzeje', 'czeka': '💤 czeka'}.get(value, '–')
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(5.0, refresh)
+
+
+def _valve_card() -> None:
+    """"Otwarcie zaworu": wartość + prosty pasek (założenia UI, sekcja C -
+    "preferowane duże wartości procentowe... oraz proste wskaźniki paskowe").
+    Jedna wspólna wartość (cel `mixing_valve`), nie rozbita na dwa osobne pola
+    "ciepło"/"dogrzewanie" z pierwotnych założeń - silnik today/night dzieli
+    bang-bang na low/high per pora dnia, nie na dwa niezależnie czytane kanały
+    (patrz comfort-controller docstring), więc dwa pola pokazywałyby to samo
+    rozbite bez potrzeby; szczegółowe progi dzień/noc są w `/comfort/config`."""
+    card = _card('Otwarcie zaworu', 'tune')
+    with card:
+        valve_label = ui.label('–').classes('text-2xl font-medium')
+        valve_bar = ui.linear_progress(value=0, show_value=False) \
+            .classes('w-full').props('rounded color=blue-4 size=8px')
+        valve_caption = ui.label('').classes('text-xs text-grey-7')
+
+    def refresh() -> None:
+        value = mqttclient.cache.value(TOPIC, 'mixing_valve')
+        if value is None:
+            valve_label.text = 'Brak danych'
+            valve_bar.value = 0.0
+            valve_caption.text = ''
+            return
+        value = float(value)
+        valve_label.text = f'{value:.0f}%'
+        valve_bar.value = max(0.0, min(1.0, value / 100.0))
+        age = mqttclient.cache.age(TOPIC)
+        valve_caption.text = 'nieaktualne' if age is not None and age > live.STALE_SECONDS else ''
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(5.0, refresh)
+
+
+def _rule_card() -> None:
+    """"Aktualna reguła" (założenia UI, sekcja D) - nazwa reguły, jej
+    temperatura i do kiedy obowiązuje, wprost z `cave/comfort` (patrz docstring
+    modułu)."""
+    card = _card('Aktualna reguła', 'rule', classes='w-full md:w-80')
+    with card:
+        name_label = ui.label('–').classes('text-lg font-medium')
+        detail_label = ui.label('').classes('text-sm text-grey-7')
+
+    def refresh() -> None:
+        name = mqttclient.cache.value(TOPIC, 'current_rule')
+        temp = mqttclient.cache.value(TOPIC, 'effective_setpoint')
+        until = mqttclient.cache.value(TOPIC, 'current_rule_until')
+        name_label.text = name or '–'
+        parts = []
+        if temp is not None:
+            parts.append(f'{float(temp):.1f} °C')
+        until_text = format_until(until)
+        if until_text:
+            parts.append(until_text)
+        detail_label.text = ' · '.join(parts)
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(5.0, refresh)
+
+
+def _next_change_card() -> None:
+    """"Następna zmiana" (założenia UI, sekcja E) - "Brak zaplanowanej zmiany"
+    to w praktyce tylko stan przejściowy (dzień/noc zmieniają się zawsze co
+    jakiś czas) albo brak danych z silnika, nie normalny stan ustalony."""
+    card = _card('Następna zmiana', 'update', classes='w-full md:w-80')
+    with card:
+        when_label = ui.label('').classes('text-sm text-grey-7')
+        rule_label = ui.label('–').classes('text-lg font-medium')
+
+    def refresh() -> None:
+        rule = mqttclient.cache.value(TOPIC, 'next_rule')
+        at = mqttclient.cache.value(TOPIC, 'next_change_at')
+        temp = mqttclient.cache.value(TOPIC, 'next_temp')
+        if not rule or not at:
+            when_label.text = ''
+            rule_label.text = 'Brak zaplanowanej zmiany'
+            return
+        when_label.text = format_until(at)
+        temp_text = f' → {float(temp):.1f} °C' if temp is not None else ''
+        rule_label.text = f'{rule}{temp_text}'
+
+    ui.timer(0.1, refresh, once=True)
+    ui.timer(5.0, refresh)
+
+
+# Trzy wartości, dla których zwykły tekstowy format (z szarzeniem przy
+# nieaktualności i podpisem "x s temu"/"brak danych") wystarcza bez niczego
+# dodatkowego - LivePanel.bind() robi to za darmo, patrz live.py.
+TOP_VALUES = [
+    live.value_of('Temperatura', topics.sensor('inside_temp'), unit='°C', digits=1),
+    live.Value('Wartość zadana', (TOPIC,), key='effective_setpoint', unit='°C', digits=1, columns=()),
+    live.value_of('Temperatura podłogi', topics.sensor('floor_temp'), unit='°C', digits=1),
 ]
-
-# Zawór mieszający podłogówki i jego pompa - z comfort-controller (etap 0:
-# bang-bang dzień/noc, patrz jego README). mixing_valve to CEL otwarcia, nie
-# pomiar - zawór nie ma czujnika pozycji, usługa tylko pamięta, ile razy i jak
-# długo kazała mu jechać.
-VALVE = [
-    v('Otwarcie zaworu', 'mixing_valve', unit='%', digits=0, icon='tune'),
-    v('Próg niski', 'mixing_valve_low', unit='%', digits=0, icon='arrow_downward'),
-    v('Próg wysoki', 'mixing_valve_high', unit='%', digits=0, icon='arrow_upward'),
-    v('Pełny skok', 'mixing_valve_time', unit='s', digits=0, icon='timer'),
-    v('Pompa podłogówki', 'pump_on', kind='bool', icon='water_pump'),
-]
-
-# "W praktyce będzie pewnie tylko dzień/noc" - stąd tylko tryb i profil,
-# bez edytowalnych godzin pobudki/wyjścia itp. (to już zadanie dedykowanej
-# usługi, nie caveweb).
-SCHEDULE = [
-    v('Harmonogram', 'schedule_mode', icon='schedule'),
-    v('Profil', 'schedule_profile', icon='event'),
-    v('Nadpisanie', 'override_state', icon='edit_calendar'),
-]
-
-# (nazwa pola w cave/comfort/setpoints/<nazwa> - UWAGA, "setpoints" w liczbie
-# mnogiej, tak jak cave/heating/setpoints/* - etykieta, typ, min, max,
-# domyślna, jednostka, krok) - nastawa temperatury i sześć bang-bang etapu 0
-# w comfort-controller (patrz jego config.example.py - te same domyślne).
-CONFIG_FIELDS = [
-    ('inside_temp', 'Nastawa temperatury', 'float', 15.0, 28.0, 21.0, '°C', 0.1),
-    ('day_start_hour', 'Dzień od (godz.)', 'int', 0, 23, 6, '', 1),
-    ('day_end_hour', 'Dzień do (godz.)', 'int', 0, 23, 20, '', 1),
-    ('mixing_valve_low_day', 'Próg niski - dzień', 'float', 0, 100, 20.0, '%', 1),
-    ('mixing_valve_high_day', 'Próg wysoki - dzień', 'float', 0, 100, 25.0, '%', 1),
-    ('mixing_valve_low_night', 'Próg niski - noc', 'float', 0, 100, 15.0, '%', 1),
-    ('mixing_valve_high_night', 'Próg wysoki - noc', 'float', 0, 100, 20.0, '%', 1),
-]
-
-
-def clamp_config_value(data_type: str, min_v: float, max_v: float, value) -> int | float:
-    """Przycięcie do typu i zakresu - patrz boiler_config.clamp_value po
-    uzasadnienie (ten sam powód: usługa, która dostanie wartość spoza
-    zakresu, nie przytnie jej sama, tylko zresetuje do swojego configu)."""
-    value = max(min_v, min(max_v, float(value)))
-    return int(round(value)) if data_type == 'int' else value
-
-
-def config_section() -> None:
-    """Nastawa temperatury i sześć bang-bang etapu 0 (patrz CONFIG_FIELDS) -
-    "Wczytaj" wypełnia pola aktualnymi wartościami z brokera (albo domyślnymi,
-    gdy jeszcze nic tam nie ma), "Zapisz" publikuje WSZYSTKIE na raz, tak samo
-    jak /boiler/config robi to dla nastaw kotła."""
-    inputs = {}
-
-    def load_from_broker(notify: bool = True) -> None:
-        filled = 0
-        for name, _, data_type, _, _, default, _, _ in CONFIG_FIELDS:
-            value = mqttclient.cache.value(config_setpoint_topic(name))
-            widget = inputs.get(name)
-            if widget is None:
-                continue
-            if value is None:
-                widget.value = default
-                continue
-            widget.value = int(round(value)) if data_type == 'int' else float(value)
-            filled += 1
-        if notify:
-            ui.notify(f'Wczytano {filled} z {len(CONFIG_FIELDS)} nastaw z brokera')
-
-    def save_to_broker() -> None:
-        sent = 0
-        for name, _, data_type, min_v, max_v, _, _, _ in CONFIG_FIELDS:
-            widget = inputs.get(name)
-            if widget is None or widget.value is None:
-                continue
-            value = clamp_config_value(data_type, min_v, max_v, widget.value)
-            mqttclient.publish(config_setpoint_topic(name), json.dumps({'value': value}),
-                              qos=0, retain=True)
-            sent += 1
-        ui.notify(f'Wysłano {sent} nastaw do comfort-controller', type='positive')
-
-    with ui.row().classes('w-full items-center gap-2'):
-        ui.button('Wczytaj z brokera', icon='download',
-                  on_click=lambda: load_from_broker()).props('outline')
-        ui.button('Zapisz', icon='save', on_click=save_to_broker).props('color=primary')
-
-    with ui.column().classes('w-full gap-1'):
-        for name, label, data_type, min_v, max_v, default, unit, step in CONFIG_FIELDS:
-            with ui.row().classes('w-full items-center gap-3 no-wrap'):
-                ui.label(label).classes('text-sm w-44')
-                # Krok całkowity (godziny, %) -> bez miejsc po przecinku;
-                # krok ułamkowy (0.1°C temperatury) -> jedno miejsce.
-                digits = 0 if float(step).is_integer() else 1
-                inputs[name] = number_stepper(
-                    value=default, min=min_v, max=max_v, step=step,
-                    suffix=unit or None, format=f'%.{digits}f',
-                    classes='w-48')
-
-    ui.timer(1.0, lambda: load_from_broker(notify=False), once=True)
 
 
 @ui.page('/comfort')
 def comfort() -> None:
-    page_header('Panel komfortu', back=True)
+    page_header('Panel komfortu', back=True, right=_mode_label)
 
-    panels = []
-    with ui.column().classes('w-full p-3 gap-2'):
-        for title, values in (('Komfort', COMFORT), ('Zawór mieszający', VALVE),
-                              ('Harmonogram', SCHEDULE)):
-            section(title)
-            panel = live.LivePanel(values)
-            panel.render_cards()
-            panels.append(panel)
+    panel = live.LivePanel(TOP_VALUES)
+    temp_spec, setpoint_spec, floor_spec = TOP_VALUES
 
-        section('Konfiguracja')
-        ui.label('Nastawy niezbędne comfort-controller do pracy (etap 0) - '
-                 'reszta nastaw tej usługi (np. mixing_valve_time) nie ma tu '
-                 'jeszcze formularza.') \
-            .classes('text-xs text-grey-7')
-        config_section()
+    with ui.column().classes('w-full p-3 gap-3'):
+        with ui.row().classes('w-full gap-3 flex-wrap justify-center'):
+            card = _card(temp_spec.label, 'thermostat')
+            with card:
+                value_label = ui.label('–').classes('text-2xl font-medium')
+                caption_label = ui.label('').classes('text-xs text-grey-7')
+            panel.bind(temp_spec.label, value_label, caption_label)
 
-    for panel in panels:
-        panel.start()
+            _state_card()
+
+            card = _card(setpoint_spec.label, 'flag')
+            with card:
+                value_label = ui.label('–').classes('text-2xl font-medium')
+                caption_label = ui.label('').classes('text-xs text-grey-7')
+            panel.bind(setpoint_spec.label, value_label, caption_label)
+
+            _valve_card()
+
+            card = _card(floor_spec.label, 'device_thermostat')
+            with card:
+                value_label = ui.label('–').classes('text-2xl font-medium')
+                caption_label = ui.label('').classes('text-xs text-grey-7')
+            panel.bind(floor_spec.label, value_label, caption_label)
+
+        with ui.row().classes('w-full gap-3 flex-wrap justify-center'):
+            _rule_card()
+            _next_change_card()
+
+        with ui.row().classes('w-full gap-3 justify-center'):
+            ui.button('Harmonogram', icon='schedule',
+                      on_click=lambda: ui.navigate.to('/comfort/config')).props('outline')
+            ui.button('Nieobecność', icon='flight_takeoff',
+                      on_click=lambda: ui.navigate.to('/comfort/config')).props('outline')
+            ui.button('Konfiguracja', icon='tune',
+                      on_click=lambda: ui.navigate.to('/comfort/config')).props('outline')
+
+    panel.start()
     live.mqtt_status_label()

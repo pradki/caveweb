@@ -7,6 +7,7 @@ Nie budujemy interfejsu - sprawdzamy dane, z których strony się składają.
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -15,9 +16,9 @@ from support import check, done, ensure_nicegui
 
 ensure_nicegui()
 
-from caveweb import fuel_level, heating_params, live, topics
-from caveweb.pages import (automations, boiler, boiler_config, comfort, home, pv,
-                           recuperation, temperatures)
+from caveweb import comfort_params, fuel_level, heating_params, live, topics
+from caveweb.pages import (automations, boiler, boiler_config, comfort, comfort_config,
+                           home, pv, recuperation, temperatures)
 
 # --- każda strona musi być zaimportowana w caveweb/__init__.py ---------------
 # Samo istnienie pages/foo.py nic nie rejestruje - @ui.page tylko dekoruje
@@ -121,9 +122,7 @@ PANELS = {
     'pv.BATTERY': pv.BATTERY,
     'pv.LOAD': pv.LOAD,
     'pv.TODAY': pv.TODAY,
-    'comfort.COMFORT': comfort.COMFORT,
-    'comfort.VALVE': comfort.VALVE,
-    'comfort.SCHEDULE': comfort.SCHEDULE,
+    'comfort.TOP_VALUES': comfort.TOP_VALUES,
     'recuperation.AIR': recuperation.AIR,
 }
 
@@ -190,49 +189,62 @@ check("topics.relay_cmd", topics.relay_cmd('co_pump_boiler', 'caveweb') ==
       f'cave/relay/{topics.RELAY_MODULE}/co_pump_boiler/cmd/caveweb')
 check("topics.COMFORT_TOPIC", topics.COMFORT_TOPIC == 'cave/comfort')
 
-# --- strony /comfort i /recuperation - żadna pozycja nie ma awaryjnej kolumny
-# w bazie (metrica tego topiku nie zbiera - to nie czujnik, dedykowane usługi
-# dopiero powstają/są w budowie); inside_temp na kafelku /home to inny temat,
-# patrz osobny check wyżej (ten czujnik metrica już zbiera) -----------------
-check("żadna pozycja /comfort i /recuperation nie ma kolumny w bazie",
-      all(spec.columns == () for values in
-          (comfort.COMFORT, comfort.VALVE, comfort.SCHEDULE, recuperation.AIR,
-           home.RECUPERATION_TILE)
+# --- strony /comfort i /recuperation - żadna pozycja czytana wprost z
+# cave/comfort nie ma awaryjnej kolumny w bazie (metrica tego topiku nie
+# zbiera); pozycje czytane wprost z czujników (Temperatura/Temperatura
+# podłogi na /comfort, inside_temp na kafelku /home) owszem mają - metrica
+# zbiera te czujniki niezależnie od tego, czy comfort-controller działa -----
+check("'Wartość zadana' na /comfort (z cave/comfort) nie ma awaryjnej kolumny w bazie",
+      next(spec for spec in comfort.TOP_VALUES if spec.label == 'Wartość zadana').columns == ())
+check("'Temperatura'/'Temperatura podłogi' na /comfort czytają czujniki wprost - MAJĄ kolumnę",
+      all(spec.columns != () for spec in comfort.TOP_VALUES if spec.label != 'Wartość zadana'))
+check("żadna pozycja /recuperation nie ma kolumny w bazie",
+      all(spec.columns == () for values in (recuperation.AIR, home.RECUPERATION_TILE)
           for spec in values))
 
-# --- strona /comfort - formularz nastawy temperatury + sześciu bang-bang etapu 0
+# --- /comfort/config - metadane nastaw comfort-controller (comfort_params.py)
 
-check("CONFIG_FIELDS adresuje nastawy comfort-controller pod cave/comfort/setpoints/*",
-      all(comfort.config_setpoint_topic(name) == f'cave/comfort/setpoints/{name}'
-          for name, *_ in comfort.CONFIG_FIELDS))
-check("nazwy pól unikalne", len({name for name, *_ in comfort.CONFIG_FIELDS})
-      == len(comfort.CONFIG_FIELDS))
-check("min < max i domyślna w zakresie, dla każdego pola",
-      all(min_v < max_v and min_v <= default <= max_v
-          for _, _, _, min_v, max_v, default, _, _ in comfort.CONFIG_FIELDS))
-check("krok dodatni dla każdego pola", all(step > 0 for *_, step in comfort.CONFIG_FIELDS))
-check("nastawa temperatury ma krok 0.1 - reszta pełne jednostki",
-      comfort.CONFIG_FIELDS[0][0] == 'inside_temp' and comfort.CONFIG_FIELDS[0][-1] == 0.1
-      and all(field[-1] == 1 for field in comfort.CONFIG_FIELDS[1:]))
+check("SETPOINTS adresuje nastawy comfort-controller pod cave/comfort/setpoints/*",
+      all(meta['topic'] == f'cave/comfort/setpoints/{name}'
+          for name, meta in comfort_params.SETPOINTS.items()))
+check("min < max i domyślna w zakresie, dla każdej nastawy liczbowej",
+      all(meta['min'] < meta['max'] and meta['min'] <= meta['default'] <= meta['max']
+          for meta in comfort_params.SETPOINTS.values() if meta['data_type'] != 'bool'))
 check("progi niskie niższe niż wysokie, w obu porach dnia (domyślne wartości)",
-      comfort.CONFIG_FIELDS[3][5] < comfort.CONFIG_FIELDS[4][5]   # low/high dzień
-      and comfort.CONFIG_FIELDS[5][5] < comfort.CONFIG_FIELDS[6][5])  # low/high noc
+      comfort_params.SETPOINTS['mixing_valve_low_day']['default']
+      < comfort_params.SETPOINTS['mixing_valve_high_day']['default']
+      and comfort_params.SETPOINTS['mixing_valve_low_night']['default']
+      < comfort_params.SETPOINTS['mixing_valve_high_night']['default'])
 check("godzina początku dnia wcześniejsza niż końca (domyślne wartości)",
-      comfort.CONFIG_FIELDS[1][5] < comfort.CONFIG_FIELDS[2][5])
+      comfort_params.SETPOINTS['day_start_hour']['default']
+      < comfort_params.SETPOINTS['day_end_hour']['default'])
+check("SCHEDULE_FIELDS/ABSENCE_FIELDS/ADVANCED_FIELDS razem pokrywają SETPOINTS, bez powtórzeń",
+      sorted(comfort_params.SCHEDULE_FIELDS + comfort_params.ABSENCE_FIELDS + comfort_params.ADVANCED_FIELDS)
+      == sorted(comfort_params.SETPOINTS)
+      and (len(comfort_params.SCHEDULE_FIELDS) + len(comfort_params.ABSENCE_FIELDS)
+           + len(comfort_params.ADVANCED_FIELDS)) == len(comfort_params.SETPOINTS))
+check("ABSENCE_FIELDS to dokładnie nastawy jednorodne nieobecności (reszta - start/end/today - ma własny widget)",
+      set(comfort_params.ABSENCE_FIELDS) == {'absence_enabled', 'absence_temp'})
+check("trzy nastawy nieobecności spoza SETPOINTS adresują właściwe topiki",
+      comfort_params.ABSENCE_START_TOPIC == 'cave/comfort/setpoints/absence_start'
+      and comfort_params.ABSENCE_END_TOPIC == 'cave/comfort/setpoints/absence_end'
+      and comfort_params.ABSENCE_TODAY_TOPIC == 'cave/comfort/setpoints/absence_today')
 
-check("clamp_config_value: w zakresie - bez zmian",
-      comfort.clamp_config_value('float', 0, 100, 25.0) == 25.0)
-check("clamp_config_value: poza zakresem - przycięte, nie odrzucone",
-      comfort.clamp_config_value('float', 0, 100, 150.0) == 100.0
-      and comfort.clamp_config_value('float', 0, 100, -5.0) == 0.0)
-check("clamp_config_value: int zaokrąglony do liczby całkowitej",
-      comfort.clamp_config_value('int', 0, 23, 19.6) == 20
-      and isinstance(comfort.clamp_config_value('int', 0, 23, 19.6), int))
+check("clamp_value (boiler_config, reużyte przez /comfort/config): w zakresie - bez zmian",
+      boiler_config.clamp_value(comfort_params.SETPOINTS['absence_temp'], 19.0) == 19.0)
+check("clamp_value: poza zakresem - przycięte, nie odrzucone",
+      boiler_config.clamp_value(comfort_params.SETPOINTS['day_start_hour'], 30) == 23)
+check("clamp_value: bool",
+      boiler_config.clamp_value(comfort_params.SETPOINTS['absence_enabled'], 1) is True)
 
-check("'Nastawa' w sekcji Komfort czyta wprost cave/comfort/setpoints/inside_temp, "
-      "nie zdublowane pole na cave/comfort (usunięte stamtąd - patrz comfort_controller README)",
-      next(spec for spec in comfort.COMFORT if spec.label == 'Nastawa').topics
-      == (comfort.config_setpoint_topic('inside_temp'),))
+check("comfort_config.SetpointGroup buduje specs dokładnie z pól przekazanej sekcji",
+      set(comfort_config.SetpointGroup(comfort_params.SCHEDULE_FIELDS).specs)
+      == set(comfort_params.SCHEDULE_FIELDS))
+
+check("format_until: brak wartości -> pusty string", comfort.format_until(None) == '')
+check("format_until: dzisiejsza data -> 'do HH:MM'",
+      comfort.format_until(datetime.now().strftime('%Y-%m-%dT%H:%M:%S')).startswith('do '))
+check("format_until: śmieć -> pusty string, nie wyjątek", comfort.format_until('nie-data') == '')
 
 # --- strona /automations - kopia metadanych z cave-service-manager ----------
 
