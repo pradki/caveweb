@@ -26,6 +26,20 @@ from nicegui import ui
 from .. import heating_params, live, mqttclient
 from ..widgets import number_stepper, page_header, section
 
+# Najczęściej ruszane nastawy - zawsze widoczne. Reszta `heating_params.SETPOINTS`
+# (progi bezpieczeństwa, strojenie dmuchawy/zaworu...) trafia do zwijanej sekcji
+# "Zaawansowana konfiguracja", żeby ten ekran nie zniechęcał przy pierwszym
+# wejściu długą listą rzadko dotykanych pól.
+BASIC_SETPOINTS = (
+    'furnace_enable_setpoint',
+    'furnace_temp_setpoint',
+    'feeding_time_setpoint',
+    'pause_time_setpoint',
+    'keeping_fire_interval_setpoint',
+    'keeping_fire_duration_setpoint',
+    'multiplicity_setpoint',
+)
+
 
 def spec_for(name: str, meta: dict) -> live.Value:
     """Wartość bieżąca nastawy (to, co faktycznie siedzi na brokerze)."""
@@ -71,13 +85,22 @@ class BoilerConfigPage:
                 ui.label('Zapisz wysyła WSZYSTKIE pola poniżej, nie tylko zmienione') \
                     .classes('text-xs text-grey-6')
 
-            section('Nastawy kotła')
             ui.label('kolumna "teraz" to wartość z brokera, pole obok to wartość '
                      'do wysłania przy Zapisz').classes('text-xs text-grey-7')
 
+            advanced_names = [name for name in heating_params.SETPOINTS
+                             if name not in BASIC_SETPOINTS]
+
+            section('Podstawowa konfiguracja')
             with ui.column().classes('w-full gap-1'):
-                for name, meta in heating_params.SETPOINTS.items():
-                    self.render_row(name, meta)
+                for name in BASIC_SETPOINTS:
+                    self.render_row(name, heating_params.SETPOINTS[name])
+
+            with ui.expansion('Zaawansowana konfiguracja', icon='tune') \
+                    .classes('w-full mt-2'):
+                with ui.column().classes('w-full gap-1 pt-2'):
+                    for name in advanced_names:
+                        self.render_row(name, heating_params.SETPOINTS[name])
 
         self.panel.start()
         ui.timer(1.0, lambda: self.load_from_broker(notify=False), once=True)

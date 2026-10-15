@@ -9,8 +9,10 @@ from nicegui import ui
 
 # Kafelek ma być duży – aplikacja chodzi na panelu dotykowym Raspberry Pi.
 # Wysokość minimalna, nie stała: kafelki z wartościami bieżącymi są wyższe.
+# w-60/min-h-60 (15rem) - ok. 30% większe niż poprzednie w-44 (11rem), z
+# zapasem na więcej danych w body, nie tylko większą czcionkę.
 TILE_CLASSES = (
-    'w-44 min-h-44 cursor-pointer items-center justify-center '
+    'w-60 min-h-60 cursor-pointer items-center justify-center '
     'transition-transform hover:scale-105'
 )
 
@@ -86,7 +88,8 @@ def section(title: str) -> None:
 
 def number_stepper(label: str = '', *, value=None, min=None, max=None,
                    step: float = 1, suffix: str | None = None,
-                   format: str | None = None, classes: str = 'w-32') -> ui.number:
+                   format: str | None = None, classes: str = 'w-32',
+                   repeat_interval: float = 0.15) -> ui.number:
     """`ui.number` z dużymi przyciskami +/- obok pola, zamiast polegania na
     natywnych strzałkach `input[type=number]` - na dotykowym 10" ekranie Pi w
     te malutkie strzałki trudno trafić palcem (zgłoszone na /boiler/config).
@@ -94,7 +97,16 @@ def number_stepper(label: str = '', *, value=None, min=None, max=None,
     rozmiarze wygodnym do dotyku. `classes` ustawia szerokość całej grupy
     (przyciski + pole), nie samego pola - ono rozciąga się między nimi, więc
     to jest zamiennik 1:1 dla `ui.number(...).classes(classes)` gdziekolwiek
-    był używany wcześniej."""
+    był używany wcześniej.
+
+    Przytrzymanie przycisku powtarza krok co `repeat_interval` - jeden
+    `ui.timer(repeat_interval, ..., immediate=True)` na przycisk: odpala się
+    od razu na naciśnięcie (to samo, co kiedyś robił `on_click`) i powtarza,
+    dopóki trzymane. Zdarzenia `pointer*` (nie osobno `mouse*`/`touch*`) -
+    jedno source zdarzeń dla myszy, dotyku i rysika, bez podwójnego odpalenia,
+    jakie dają przeglądarki emulujące mysz po touchu."""
+    held = {'minus': None, 'plus': None}
+
     def bump(delta: float) -> None:
         current = number.value if number.value is not None else 0.0
         new_value = current + delta
@@ -104,20 +116,40 @@ def number_stepper(label: str = '', *, value=None, min=None, max=None,
             new_value = max
         number.value = new_value
 
+    def start(key: str, delta: float) -> None:
+        stop(key)
+        held[key] = ui.timer(repeat_interval, lambda: bump(delta))
+
+    def stop(key: str) -> None:
+        timer = held.get(key)
+        if timer is not None:
+            timer.cancel()
+            held[key] = None
+
     with ui.row().classes(f'items-center gap-1 no-wrap {classes}'):
-        ui.button(icon='remove', on_click=lambda: bump(-step)) \
+        minus_btn = ui.button(icon='remove') \
             .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
         number = ui.number(label, value=value, min=min, max=max, step=step,
                            suffix=suffix, format=format) \
             .props('outlined dense hide-spin-buttons').classes('flex-grow min-w-0')
-        ui.button(icon='add', on_click=lambda: bump(step)) \
+        plus_btn = ui.button(icon='add') \
             .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
+
+    minus_btn.on('pointerdown', lambda: start('minus', -step))
+    plus_btn.on('pointerdown', lambda: start('plus', step))
+    for ev in ('pointerup', 'pointerleave', 'pointercancel'):
+        minus_btn.on(ev, lambda: stop('minus'))
+        plus_btn.on(ev, lambda: stop('plus'))
 
     return number
 
 
 def fuel_indicator(percent: float) -> None:
-    """Mały wskaźnik paliwa: ikona + procent, kolor wg progu."""
+    """Mały wskaźnik paliwa: ikona + procent, kolor wg progu. Procent w
+    `text-base font-medium` - tak samo jak tytuł kafelka obok niego (patrz
+    `tile()`) - osobny inline `font-size`/`font-weight` wyglądał jak inna
+    czcionka, mimo że to ta sama, bo omijał te same klasy co reszta
+    typografii strony."""
     if percent < 20:
         color = '#dc2626'  # czerwony
     elif percent < 60:
@@ -126,6 +158,5 @@ def fuel_indicator(percent: float) -> None:
         color = '#16a34a'  # zielony
 
     with ui.row().classes('items-center gap-1 no-wrap'):
-        ui.icon('local_gas_station', size='18px').style(f'color: {color}')
-        ui.label(f'{percent:.0f}%').style(
-            f'color: {color}; font-size: 13px; font-weight: 600')
+        ui.icon('local_gas_station', size='20px').style(f'color: {color}')
+        ui.label(f'{percent:.0f}%').classes('text-base font-medium').style(f'color: {color}')

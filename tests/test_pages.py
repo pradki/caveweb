@@ -170,6 +170,10 @@ check("nastawa float ma jedną cyfrę",
 check("konfiguracja czyta te same topiki co usługa grzewcza",
       all(specs[name].topics == (meta['topic'],)
           for name, meta in heating_params.SETPOINTS.items()))
+check("podstawowe nastawy to realne klucze z heating_params.SETPOINTS",
+      all(name in heating_params.SETPOINTS for name in boiler_config.BASIC_SETPOINTS))
+check("podstawowe nastawy bez duplikatów",
+      len(set(boiler_config.BASIC_SETPOINTS)) == len(boiler_config.BASIC_SETPOINTS))
 
 # --- topiki -------------------------------------------------------------------
 
