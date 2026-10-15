@@ -56,12 +56,16 @@ def tile(icon: str, title: str, target: str | None = None,
     jedną, najważniejszą wartość obok nazwy kafelka ("PV" + moc), żeby nie
     liczyła się do wierszy w `body` i kafelek został kwadratem.
     Bez `target` i `on_click` kafelek jest wyszarzony i nic nie robi.
-    """
+
+    Wiersz tytułu wyrównany `items-center`, nie `items-baseline` - część
+    `header_body` (np. `live_fuel_indicator`) dorzuca ikonę obok tekstu, a
+    ikona nie ma tekstowego baseline, więc `items-baseline` liczyła go
+    niejednoznacznie i przesuwała zawartość względem tytułu."""
     enabled = bool(target or on_click)
     card = ui.card().classes(TILE_CLASSES + ('' if enabled else ' opacity-40'))
     with card:
         ui.icon(icon).classes('text-4xl text-blue-4')
-        with ui.row().classes('items-baseline gap-1 justify-center'):
+        with ui.row().classes('items-center gap-1 justify-center'):
             ui.label(title).classes('text-base font-medium text-center')
             if header_body is not None:
                 header_body()
@@ -149,7 +153,11 @@ def fuel_indicator(percent: float) -> None:
     `text-base font-medium` - tak samo jak tytuł kafelka obok niego (patrz
     `tile()`) - osobny inline `font-size`/`font-weight` wyglądał jak inna
     czcionka, mimo że to ta sama, bo omijał te same klasy co reszta
-    typografii strony."""
+    typografii strony.
+
+    Bez własnego `ui.row()` - rysuje ikonę i etykietę wprost w wierszu
+    wywołującego (patrz `live_fuel_indicator()`), żeby nie było zagnieżdżenia
+    wiersz-w-wierszu (wygląda jak przesunięta, inna czcionka)."""
     if percent < 20:
         color = '#dc2626'  # czerwony
     elif percent < 60:
@@ -157,6 +165,5 @@ def fuel_indicator(percent: float) -> None:
     else:
         color = '#16a34a'  # zielony
 
-    with ui.row().classes('items-center gap-1 no-wrap'):
-        ui.icon('local_gas_station', size='20px').style(f'color: {color}')
-        ui.label(f'{percent:.0f}%').classes('text-base font-medium').style(f'color: {color}')
+    ui.icon('local_gas_station', size='20px').style(f'color: {color}')
+    ui.label(f'{percent:.0f}%').classes('text-base font-medium').style(f'color: {color}')

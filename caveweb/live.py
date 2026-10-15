@@ -270,7 +270,10 @@ def live_fuel_indicator(topic: str, interval: float = 30.0):
     "value", retained - patrz fuel_level.py). Osobny mały timer zamiast
     LivePanel.bind(): fuel_indicator rysuje ikonę w kolorze zależnym od
     wartości, nie samą etykietę tekstową, więc "podmień .text" tutaj nie
-    wystarczy - trzeba przerysować całość, tak jak mqtt_status_label()."""
+    wystarczy - trzeba przerysować całość, tak jak mqtt_status_label().
+
+    Ten wiersz JEST tym, w którym fuel_indicator() rysuje (ikona+etykieta
+    bez własnego wiersza) - jeden poziom zagnieżdżenia, nie dwa."""
     container = ui.row().classes('items-center gap-1 no-wrap')
 
     def refresh() -> None:
