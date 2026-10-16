@@ -196,7 +196,7 @@ def comfort() -> None:
     panel = live.LivePanel(TOP_VALUES)
     temp_spec, setpoint_spec, floor_spec = TOP_VALUES
 
-    with ui.column().classes('w-full max-w-4xl mx-auto p-3 gap-3'):
+    with ui.column().classes('w-full max-w-5xl mx-auto p-3 gap-3'):
         with ui.row().classes('w-full gap-3 flex-wrap justify-center'):
             card = _card(temp_spec.label, 'thermostat')
             with card:

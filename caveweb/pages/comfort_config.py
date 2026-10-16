@@ -53,23 +53,30 @@ class SetpointGroup:
         nazwa_nocy), patrz `comfort_params.SCHEDULE_ROWS`. Bez kolumny "teraz"
         z brokera, którą ma `_render_row()` - w układzie tabelarycznym nie
         mieściłaby się czytelnie obok dwóch już i tak wąskich kolumn liczb;
-        "Wczytaj z brokera" wciąż wypełnia pola aktualnymi wartościami."""
+        "Wczytaj z brokera" wciąż wypełnia pola aktualnymi wartościami.
+
+        Trzy kolumny równej szerokości (`flex-1` na wszystkich trzech, nie
+        "nazwa dostaje, co zostanie") - ze stałą szerokością (`w-40`) nazwa
+        parametru i tak dominowała wiersz, a kolumny liczb wychodziły za
+        wąskie, żeby zmieścić wartość z jednostką (np. "21.2 °C")."""
         with ui.row().classes('w-full items-center gap-3 no-wrap text-xs text-grey-5 font-medium'):
-            ui.label('Parametr').classes('flex-grow')
-            ui.label('Dzień').classes('w-40 text-center')
-            ui.label('Noc').classes('w-40 text-center')
+            ui.label('Parametr').classes('flex-1')
+            ui.label('Dzień').classes('flex-1 text-center')
+            ui.label('Noc').classes('flex-1 text-center')
         for label, day_name, night_name in rows:
             with ui.row().classes('w-full items-center gap-3 no-wrap'):
-                ui.label(label).classes('text-sm flex-grow')
-                self.inputs[day_name] = self._cell(self.meta[day_name])
-                self.inputs[night_name] = self._cell(self.meta[night_name])
+                ui.label(label).classes('text-sm flex-1')
+                with ui.column().classes('flex-1 gap-0'):
+                    self.inputs[day_name] = self._cell(self.meta[day_name])
+                with ui.column().classes('flex-1 gap-0'):
+                    self.inputs[night_name] = self._cell(self.meta[night_name])
 
     def _cell(self, meta: dict):
         step = 1 if meta['data_type'] == 'int' else 0.1
         digits = 0 if meta['data_type'] == 'int' else 1
         return number_stepper(value=meta['default'], min=meta['min'], max=meta['max'],
                               step=step, suffix=meta['unit'] or None,
-                              format=f'%.{digits}f', classes='w-40')
+                              format=f'%.{digits}f', classes='w-full')
 
     def render_buttons(self) -> None:
         with ui.row().classes('w-full items-center gap-2'):
