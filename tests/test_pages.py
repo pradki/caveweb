@@ -241,6 +241,19 @@ check("comfort_config.SetpointGroup buduje specs dokładnie z pól przekazanej s
       set(comfort_config.SetpointGroup(comfort_params.SCHEDULE_FIELDS).specs)
       == set(comfort_params.SCHEDULE_FIELDS))
 
+check("SCHEDULE_ROWS referencjonuje wyłącznie realne klucze z SETPOINTS",
+      all(day_name in comfort_params.SETPOINTS and night_name in comfort_params.SETPOINTS
+          for _, day_name, night_name in comfort_params.SCHEDULE_ROWS))
+check("SCHEDULE_ROWS pokrywa dokładnie SCHEDULE_FIELDS, bez powtórzeń",
+      sorted(name for _, day_name, night_name in comfort_params.SCHEDULE_ROWS
+            for name in (day_name, night_name))
+      == sorted(comfort_params.SCHEDULE_FIELDS))
+
+_schedule_group = comfort_config.SetpointGroup(comfort_params.SCHEDULE_FIELDS)
+_schedule_group.render_day_night_table(comfort_params.SCHEDULE_ROWS)
+check("comfort_config.SetpointGroup.render_day_night_table wypełnia inputs z obu kolumn",
+      set(_schedule_group.inputs) == set(comfort_params.SCHEDULE_FIELDS))
+
 check("format_until: brak wartości -> pusty string", comfort.format_until(None) == '')
 check("format_until: dzisiejsza data -> 'do HH:MM'",
       comfort.format_until(datetime.now().strftime('%Y-%m-%dT%H:%M:%S')).startswith('do '))

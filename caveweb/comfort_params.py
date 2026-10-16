@@ -80,9 +80,19 @@ SCHEDULE_FIELDS = (
     'mixing_valve_low_night', 'mixing_valve_high_night',
 )
 ABSENCE_FIELDS = ('absence_enabled', 'absence_temp')
-# Reszta - sekcja "Konfiguracja" (analogicznie do /boiler/config "Zaawansowana").
+# Reszta - sekcja "Zaawansowana konfiguracja" (analogicznie do /boiler/config).
 ADVANCED_FIELDS = tuple(name for name in SETPOINTS
                         if name not in SCHEDULE_FIELDS and name not in ABSENCE_FIELDS)
+
+# SCHEDULE_FIELDS jako cztery pary dzień/noc - tabela "Parametr | Dzień | Noc"
+# zamiast ośmiu osobnych wierszy z powtórzoną nazwą parametru (patrz
+# comfort_config.py:ScheduleTable). (etykieta wiersza, nazwa_dnia, nazwa_nocy).
+SCHEDULE_ROWS = (
+    ('Temperatura zadana', 'inside_temp_day', 'inside_temp_night'),
+    ('Od godziny', 'day_start_hour', 'day_end_hour'),
+    ('Otwarcie zaworu - dogrzewanie', 'mixing_valve_high_day', 'mixing_valve_high_night'),
+    ('Otwarcie zaworu - podtrzymanie', 'mixing_valve_low_day', 'mixing_valve_low_night'),
+)
 
 # Nieobecność - trzy nastawy spoza SETPOINTS (patrz docstring modułu).
 ABSENCE_START_TOPIC = topic('absence_start')

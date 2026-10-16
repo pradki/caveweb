@@ -5,10 +5,11 @@ na raz, przycinanie do [min, max] przed wysyłką - patrz boiler_config.py
 docstring po pełne uzasadnienie przycinania).
 
 Trzy niezależne sekcje (`ui.expansion`), każda z własnym Wczytaj/Zapisz -
-"Harmonogram" (dzień/noc) zaczyna rozwinięta, bo to najczęściej ruszane;
-"Nieobecność" i "Konfiguracja" (dziś: tylko pełny skok zaworu) są zwinięte,
-tak jak /boiler/config chowa rzadziej ruszane nastawy w "Zaawansowana
-konfiguracja"."""
+"Harmonogram" (dzień/noc, w układzie tabeli Parametr/Dzień/Noc - patrz
+`SetpointGroup.render_day_night_table()`) zaczyna rozwinięta, bo to
+najczęściej ruszane; "Nieobecność" i "Zaawansowana konfiguracja" (dziś: tylko
+pełny skok zaworu) są zwinięte, tak samo jak /boiler/config chowa rzadziej
+ruszane nastawy."""
 
 from __future__ import annotations
 __version__ = "0.1"
@@ -30,7 +31,8 @@ class SetpointGroup:
     """Nastawy jednorodne (bool/liczba) jednej sekcji - ten sam wzorzec co
     `boiler_config.BoilerConfigPage`, tylko parametryzowany listą nazw zamiast
     hardcodowanego `heating_params.SETPOINTS` w całości, żeby dało się go użyć
-    trzykrotnie (Harmonogram/Nieobecność/Konfiguracja) bez kopiowania."""
+    trzykrotnie (Harmonogram/Nieobecność/Zaawansowana konfiguracja) bez
+    kopiowania."""
 
     def __init__(self, names: tuple[str, ...]):
         self.meta = {name: comfort_params.SETPOINTS[name] for name in names}
@@ -42,6 +44,32 @@ class SetpointGroup:
         with ui.column().classes('w-full gap-1'):
             for name, meta in self.meta.items():
                 self._render_row(name, meta)
+
+    def render_day_night_table(self, rows: tuple) -> None:
+        """Układ "Parametr | Dzień | Noc" zamiast jednego wiersza na pole -
+        dla par dzień/noc (ten sam parametr, dwie wartości) nazwa nie
+        powtarza się w dwóch wierszach, a cały topic (i tak identyczny poza
+        `_day`/`_night`) się nie wypisuje - `rows`: (etykieta, nazwa_dnia,
+        nazwa_nocy), patrz `comfort_params.SCHEDULE_ROWS`. Bez kolumny "teraz"
+        z brokera, którą ma `_render_row()` - w układzie tabelarycznym nie
+        mieściłaby się czytelnie obok dwóch już i tak wąskich kolumn liczb;
+        "Wczytaj z brokera" wciąż wypełnia pola aktualnymi wartościami."""
+        with ui.row().classes('w-full items-center gap-3 no-wrap text-xs text-grey-5 font-medium'):
+            ui.label('Parametr').classes('flex-grow')
+            ui.label('Dzień').classes('w-40 text-center')
+            ui.label('Noc').classes('w-40 text-center')
+        for label, day_name, night_name in rows:
+            with ui.row().classes('w-full items-center gap-3 no-wrap'):
+                ui.label(label).classes('text-sm flex-grow')
+                self.inputs[day_name] = self._cell(self.meta[day_name])
+                self.inputs[night_name] = self._cell(self.meta[night_name])
+
+    def _cell(self, meta: dict):
+        step = 1 if meta['data_type'] == 'int' else 0.1
+        digits = 0 if meta['data_type'] == 'int' else 1
+        return number_stepper(value=meta['default'], min=meta['min'], max=meta['max'],
+                              step=step, suffix=meta['unit'] or None,
+                              format=f'%.{digits}f', classes='w-40')
 
     def render_buttons(self) -> None:
         with ui.row().classes('w-full items-center gap-2'):
@@ -65,9 +93,14 @@ class SetpointGroup:
                 self.inputs[name] = ui.switch(value=bool(meta['default']))
             else:
                 step = 1 if meta['data_type'] == 'int' else 0.1
+                digits = 0 if meta['data_type'] == 'int' else 1
+                # `format` jawnie - bez niego ui.number pokazywał więcej miejsc
+                # po przecinku niż krok 0.1 sugeruje (dryf float przy +/-
+                # wyglądał jak setne stopnia zamiast dziesiątych).
                 self.inputs[name] = number_stepper(
                     value=meta['default'], min=meta['min'], max=meta['max'],
-                    step=step, suffix=meta['unit'] or None, classes='w-48')
+                    step=step, suffix=meta['unit'] or None,
+                    format=f'%.{digits}f', classes='w-60')
             ui.label(f"{meta['min']} … {meta['max']} {meta['unit']}".strip()) \
                 .classes('text-xs text-grey-7 w-28')
 
@@ -218,19 +251,19 @@ def comfort_config() -> None:
     advanced = SetpointGroup(comfort_params.ADVANCED_FIELDS)
 
     with ui.column().classes('w-full p-3 gap-2'):
-        ui.label('kolumna "teraz" to wartość z brokera, pole obok to wartość '
-                 'do wysłania przy Zapisz').classes('text-xs text-grey-7')
+        ui.label('kolumna "teraz" (gdzie widoczna) to wartość z brokera, pole obok to '
+                 'wartość do wysłania przy Zapisz').classes('text-xs text-grey-7')
 
         with ui.expansion('Harmonogram', icon='schedule', value=True).classes('w-full'):
             with ui.column().classes('w-full gap-2 pt-2'):
                 schedule.render_buttons()
-                schedule.render_rows()
+                schedule.render_day_night_table(comfort_params.SCHEDULE_ROWS)
 
         with ui.expansion('Nieobecność', icon='flight_takeoff').classes('w-full mt-2'):
             with ui.column().classes('w-full gap-2 pt-2'):
                 absence.render()
 
-        with ui.expansion('Konfiguracja', icon='tune').classes('w-full mt-2'):
+        with ui.expansion('Zaawansowana konfiguracja', icon='tune').classes('w-full mt-2'):
             with ui.column().classes('w-full gap-2 pt-2'):
                 advanced.render_buttons()
                 advanced.render_rows()

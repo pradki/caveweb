@@ -132,12 +132,12 @@ def number_stepper(label: str = '', *, value=None, min=None, max=None,
 
     with ui.row().classes(f'items-center gap-1 no-wrap {classes}'):
         minus_btn = ui.button(icon='remove') \
-            .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
+            .props('unelevated color=grey-8').classes('w-12 h-12 shrink-0 rounded-lg')
         number = ui.number(label, value=value, min=min, max=max, step=step,
                            suffix=suffix, format=format) \
             .props('outlined dense hide-spin-buttons').classes('flex-grow min-w-0')
         plus_btn = ui.button(icon='add') \
-            .props('round unelevated color=grey-8').classes('w-12 h-12 shrink-0')
+            .props('unelevated color=grey-8').classes('w-12 h-12 shrink-0 rounded-lg')
 
     minus_btn.on('pointerdown', lambda: start('minus', -step))
     plus_btn.on('pointerdown', lambda: start('plus', step))

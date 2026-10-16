@@ -73,14 +73,24 @@ def _card(label: str, icon: str, classes: str = 'w-44') -> ui.card:
 def _state_card() -> None:
     """"Stan": duży emoji+tekst wg `hvac_state` - która gałąź bang-bang jest
     aktywna, NIE stan pompy (ta chodzi prawie zawsze - patrz comfort-controller
-    README, "The pump")."""
+    README, "The pump"). Podpis pod spodem (wiek odczytu) nie tylko informuje
+    o nieaktualności (jak reszta kart) - bez niego ta karta miała tylko dwa
+    wiersze zamiast trzech jak sąsiadki, więc "Stan" wizualnie siedział niżej."""
     card = _card('Stan', 'local_fire_department')
     with card:
         state_label = ui.label('–').classes('text-2xl font-medium')
+        caption_label = ui.label('').classes('text-xs text-grey-7')
 
     def refresh() -> None:
         value = mqttclient.cache.value(TOPIC, 'hvac_state')
         state_label.text = {'grzeje': '♨️ grzeje', 'czeka': '💤 czeka'}.get(value, '–')
+        age = mqttclient.cache.age(TOPIC)
+        if age is None:
+            caption_label.text = 'brak danych'
+        elif age > live.STALE_SECONDS:
+            caption_label.text = 'nieaktualne'
+        else:
+            caption_label.text = f'{age:.0f} s temu' if age < 90 else f'{age / 60:.0f} min temu'
 
     ui.timer(0.1, refresh, once=True)
     ui.timer(5.0, refresh)
@@ -122,7 +132,7 @@ def _rule_card() -> None:
     """"Aktualna reguła" (założenia UI, sekcja D) - nazwa reguły, jej
     temperatura i do kiedy obowiązuje, wprost z `cave/comfort` (patrz docstring
     modułu)."""
-    card = _card('Aktualna reguła', 'rule', classes='w-full md:w-80')
+    card = _card('Aktualna reguła', 'rule', classes='w-full')
     with card:
         name_label = ui.label('–').classes('text-lg font-medium')
         detail_label = ui.label('').classes('text-sm text-grey-7')
@@ -148,7 +158,7 @@ def _next_change_card() -> None:
     """"Następna zmiana" (założenia UI, sekcja E) - "Brak zaplanowanej zmiany"
     to w praktyce tylko stan przejściowy (dzień/noc zmieniają się zawsze co
     jakiś czas) albo brak danych z silnika, nie normalny stan ustalony."""
-    card = _card('Następna zmiana', 'update', classes='w-full md:w-80')
+    card = _card('Następna zmiana', 'update', classes='w-full')
     with card:
         when_label = ui.label('').classes('text-sm text-grey-7')
         rule_label = ui.label('–').classes('text-lg font-medium')
@@ -186,7 +196,7 @@ def comfort() -> None:
     panel = live.LivePanel(TOP_VALUES)
     temp_spec, setpoint_spec, floor_spec = TOP_VALUES
 
-    with ui.column().classes('w-full p-3 gap-3'):
+    with ui.column().classes('w-full max-w-4xl mx-auto p-3 gap-3'):
         with ui.row().classes('w-full gap-3 flex-wrap justify-center'):
             card = _card(temp_spec.label, 'thermostat')
             with card:
@@ -210,7 +220,7 @@ def comfort() -> None:
                 caption_label = ui.label('').classes('text-xs text-grey-7')
             panel.bind(floor_spec.label, value_label, caption_label)
 
-        with ui.row().classes('w-full gap-3 flex-wrap justify-center'):
+        with ui.column().classes('w-full gap-3'):
             _rule_card()
             _next_change_card()
 

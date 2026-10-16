@@ -37,6 +37,13 @@ TASKS = [
      'żeby dogrzać górę bufora (rezerwę CWU). Bez własnej konfiguracji - oba '
      'progi to nastawy heating-controller, nie tej usługi.',
      []),
+    ('pump_always_on', 'Pompa CO zawsze wł.',
+     'Eksperyment: trzyma pompę pieca włączoną bez przerwy, bez żadnego warunku '
+     '- sprawdzenie, czy stabilniejsza temperatura pieca zmniejsza zużycie węgla. '
+     'Domyślnie WYŁĄCZONE (inaczej od pozostałych zadań) - jego "warunek" jest '
+     'zawsze spełniony, więc start włączone uruchomiłby pompę bez przerwy od razu '
+     'po restarcie usługi.',
+     []),
 ]
 
 
